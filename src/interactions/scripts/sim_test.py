@@ -8,8 +8,10 @@ import moveit_msgs.msg
 import geometry_msgs.msg
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+
 from datetime import datetime 
 import os
+import pickle
 
 from geometry_msgs.msg import WrenchStamped
 
@@ -553,6 +555,7 @@ class MoveGroupPythonInterfaceTutorial(object):
     
 
             
+tactile_sensor = "Digit"
 
 mp = MoveGroupPythonInterfaceTutorial()
 
@@ -563,4 +566,8 @@ while True:
     else:
         break
 
-print(mp.home)
+mp.moveHome()
+
+# create unique filename using time, data, and type of tactile sensor
+filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + "_" + tactile_sensor + ".pkl"
+mp.saveData(filename)
