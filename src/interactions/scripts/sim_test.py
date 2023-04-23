@@ -63,14 +63,11 @@ def all_close(goal, actual, tolerance):
     return True
 
 
-class MoveGroupPythonInterfaceTutorial(object):
-    """MoveGroupPythonInterfaceTutorial"""
+class Experiment(object):
 
     def __init__(self):
-        super(MoveGroupPythonInterfaceTutorial, self).__init__()
+        super(Experiment, self).__init__()
 
-        ## BEGIN_SUB_TUTORIAL setup
-        ##
         ## First initialize `moveit_commander`_ and a `rospy`_ node:
         moveit_commander.roscpp_initialize(sys.argv)
         rospy.init_node("move_group_python_interface_tutorial", anonymous=True)
@@ -100,6 +97,11 @@ class MoveGroupPythonInterfaceTutorial(object):
             moveit_msgs.msg.DisplayTrajectory,
             queue_size=20,
         )
+
+        ## call service ur_hardware_interface/zero_ftsensor
+        #rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor")
+        #zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", '')
+        #zero_ftsensor()
 
         ### Subscriber for wrench data
         rospy.Subscriber("/wrench", WrenchStamped, self.wrench_cb)
@@ -470,8 +472,7 @@ class MoveGroupPythonInterfaceTutorial(object):
         self.data.tactile.append(frame)
         self.data.time.append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
 
-
-    def moveForwardUntilForce(self, increment = 0.005, max_force = 3, y_max = 0.5):
+    def moveForwardUntilForce(self, increment = 0.005, max_force = 3, y_max = 0.42):
         move_group = self.move_group
         wpose_start = move_group.get_current_pose().pose
 
@@ -522,7 +523,6 @@ class MoveGroupPythonInterfaceTutorial(object):
 
         return out_of_bounds
 
-    
     def moveXZ(self, x_increment=0, z_increment=0):
         move_group = self.move_group
         wpose = move_group.get_current_pose().pose
@@ -535,6 +535,32 @@ class MoveGroupPythonInterfaceTutorial(object):
             waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
         )  # jump_threshold 
         move_group.execute(plan, wait=True)
+
+    def servoInXY(self, contact_force=3, x_increment=0.01):
+        # image we have at coordinates (0,0.5,0) a pole which is infinitely tall and thin 
+        # we want to move the robot to the pole until contact is made
+        # contact is made when the force in the z direction is greater than 3 N (contact_force)
+        # we want to servo in the XY plane until we are no longer in contact with the pole (out of bounds)
+        # we will first move in the positive x direction until we are out of bounds
+        # then we will move in the negative x direction until we are out of bounds
+
+        while True:
+            out_of_bounds = self.moveForwardUntilForce(y_max=0.42)
+            if not out_of_bounds:
+                self.moveXZ(x_increment=x_increment)
+            else:
+                break
+        
+        self.moveHome()
+
+        while True:
+            out_of_bounds = self.moveForwardUntilForce(y_max=0.42)
+            if not out_of_bounds:
+                self.moveXZ(x_increment=-x_increment)
+            else:
+                break
+        
+        self.moveHome()
 
     def moveHome(self):
         move_group = self.move_group
@@ -551,23 +577,30 @@ class MoveGroupPythonInterfaceTutorial(object):
         with open(filename, 'wb') as handle:
             pickle.dump(self.data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
+    def moveActualHome(self):
+        move_group = self.move_group
+        
+        wpose = self.actual_home
+        waypoints = []
+
+        waypoints.append(copy.deepcopy(wpose))
+        (plan, fraction) = move_group.compute_cartesian_path(
+            waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        )  # jump_threshold
+        move_group.execute(plan, wait=True)
 
     
 
             
 tactile_sensor = "Digit"
 
-mp = MoveGroupPythonInterfaceTutorial()
+mp = Experiment()
 
-while True:
-    out_of_bounds = mp.moveForwardUntilForce(y_max=0.45)
-    if not out_of_bounds:
-        mp.moveXZ(x_increment=-0.01)
-    else:
-        break
+mp.moveActualHome()
 
-mp.moveHome()
+# mp.servoInXY()
 
-# create unique filename using time, data, and type of tactile sensor
-filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + "_" + tactile_sensor + ".pkl"
-mp.saveData(filename)
+# # create unique filename using time, data, and type of tactile sensor
+# # save in /data folder
+# filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
+# mp.saveData('../data/'+tactile_sensor+'/'+filename)
