@@ -23,3 +23,4 @@ TO-DO:
 - Investigate the options to run the interactions under a restricted mode 
 - Understand how to rotate the wrist 
 - Understand how to force the wrist down configuration we want
+- Force that we get from wrench, is it in the right coordinate frame??
