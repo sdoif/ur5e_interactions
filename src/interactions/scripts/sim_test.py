@@ -8,6 +8,7 @@ import moveit_msgs.msg
 import geometry_msgs.msg
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+from std_srvs.srv import Trigger, TriggerRequest
 
 from datetime import datetime 
 import os
@@ -98,10 +99,13 @@ class Experiment(object):
             queue_size=20,
         )
 
-        ## FIXME: call service ur_hardware_interface/zero_ftsensor
-        #rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor")
-        #zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", '')
-        #zero_ftsensor()
+        ## call service ur_hardware_interface/zero_ftsensor
+        ## service has type std_srvs/Trigger
+        ## TODO: exception for error handling, print out error message
+
+        rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor")
+        zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", Trigger)
+        zero_ftsensor(TriggerRequest())
 
         ### Subscriber for wrench data
         rospy.Subscriber("/wrench", WrenchStamped, self.wrench_cb)
