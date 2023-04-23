@@ -98,7 +98,7 @@ class Experiment(object):
             queue_size=20,
         )
 
-        ## call service ur_hardware_interface/zero_ftsensor
+        ## FIXME: call service ur_hardware_interface/zero_ftsensor
         #rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor")
         #zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", '')
         #zero_ftsensor()
@@ -561,6 +561,13 @@ class Experiment(object):
                 break
         
         self.moveHome()
+    
+    def servoInXYZ(self, contact_force=3, x_increment=0.01, z_increment=0.01):
+        # TODO: implement this function using servoInXY and moveXZ somehow?
+        # current simple idea is to do a 2D servo in ZY for each x value
+        # maybe look into servoing in 3D?
+        pass
+
 
     def moveHome(self):
         move_group = self.move_group
