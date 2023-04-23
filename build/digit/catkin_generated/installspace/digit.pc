@@ -1,0 +1,8 @@
+prefix=/home/salmand/fyp/ur5e_interactions/install
+
+Name: digit
+Description: Description of digit
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

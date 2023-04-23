@@ -1,0 +1,8 @@
+prefix=/home/salmand/fyp/ur5e_interactions/install
+
+Name: my_ur5e_moveit_config
+Description: Description of my_ur5e_moveit_config
+Version: 0.3.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 
