@@ -18,6 +18,8 @@ The command script provided by MoveIt tutorials:
 
 Or our own client node: 
 
+``` rosrun interactions sim_test.py ```
+
 TO-DO: 
 - Need to add more about the scene to the configuration. I.e. the walls
 - Investigate the options to run the interactions under a restricted mode 
