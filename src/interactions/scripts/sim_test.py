@@ -101,7 +101,7 @@ class Experiment(object):
 
         ## call service ur_hardware_interface/zero_ftsensor
         ## service has type std_srvs/Trigger
-        ## TODO: exception for error handling, print out error message
+        ## exception for error handling, print out error message
 
         rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor")
         try:
@@ -469,6 +469,7 @@ class Experiment(object):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
 
     def digit_cb(self, data):
+        print("digit_cb called")
         ## convert data.data using cvbridge
         frame = self.bridge.imgmsg_to_cv2(data, "bgr8")        
         # obtain cartesian coordinates at current position
@@ -553,7 +554,7 @@ class Experiment(object):
         # then we will move in the negative x direction until we are out of bounds
         no_positive_x = True
         while True:
-            out_of_bounds = self.moveForwardUntilForce(y_max=0.42)
+            out_of_bounds = self.moveForwardUntilForce(y_max=0.4)
             if not out_of_bounds:
                 no_positive_x = False
                 self.moveXZ(x_increment=x_increment)
@@ -564,7 +565,7 @@ class Experiment(object):
 
         no_negative_x = True
         while True:
-            out_of_bounds = self.moveForwardUntilForce(y_max=0.42)
+            out_of_bounds = self.moveForwardUntilForce(y_max=0.4)
             if not out_of_bounds:
                 no_negative_x = False
                 self.moveXZ(x_increment=-x_increment)
@@ -578,7 +579,7 @@ class Experiment(object):
         # signal for servoInXYZ to stop
         return no_positive_x and no_negative_x
     
-    def servoInXYZ(self, contact_force=3, x_increment=0.01, z_increment=0.01):
+    def servoInXYZ(self, contact_force=3, x_increment=0.015, z_increment=0.02):
         # current logic for this is to servo in the XY plane until we are out of bounds
         # move in the positive z direction
         # and repeat until we get the signal to stop from servoInXY
@@ -631,13 +632,14 @@ tactile_sensor = "Digit"
 
 mp = Experiment()
 
-# mp.servoInXYZ()
+mp.servoInXYZ()
 
-time.sleep(1)
+
+### Data Saving ###
+# currently we are saving the data in a pickle file
+# the data it saves is timestamped force, pose and tactile sensor data
 
 # create unique filename using time, data, and type of tactile sensor
-# save in /data folder
-# TODO: make this an absolute path
 filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
 
 # Get the absolute path of the directory containing the script
