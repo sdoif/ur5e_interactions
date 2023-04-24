@@ -16,13 +16,20 @@ The command script provided by MoveIt tutorials:
 
 ```rosrun moveit_commander moveit_commander_cmdline.py```
 
+To use it first enter command ```use manipulator``` which is the name of the movegroup. Then view all possible commands by entering ```help```
+
 Or our own client node: 
 
 ``` rosrun interactions sim_test.py ```
 
-TO-DO: 
+This node currently has a basic servoing function where is probes along the XZ plane. It is able to detect when it thinks it is out of bounds of the object and no longer needs to probe and return back to home position. 
+
+
+### TO-DO: 
 - Need to add more about the scene to the configuration. I.e. the walls
 - Investigate the options to run the interactions under a restricted mode 
 - Understand how to rotate the wrist 
 - Understand how to force the wrist down configuration we want
 - Force that we get from wrench, is it in the right coordinate frame??
+- Fix the servoing values to match up with dimensions of tactile sensors 
+- Create Tactile sensor class to make code more modular and easier to modify for future TS
