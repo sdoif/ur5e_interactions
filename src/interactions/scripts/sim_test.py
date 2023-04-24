@@ -631,12 +631,29 @@ tactile_sensor = "Digit"
 
 mp = Experiment()
 
-mp.servoInXYZ()
+# mp.servoInXYZ()
+
+time.sleep(1)
 
 # create unique filename using time, data, and type of tactile sensor
 # save in /data folder
 # TODO: make this an absolute path
 filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
-cwd = os.getcwd()
-location = os.path.join(cwd, 'data', tactile_sensor, filename)
-mp.saveData(location)
+
+# Get the absolute path of the directory containing the script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the absolute path of the data file
+data_dir = os.path.join(script_dir, '..', 'data', tactile_sensor)
+location = os.path.join(data_dir, filename)
+
+# Create the directory if it doesn't exist
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
+
+try:
+    mp.saveData(location)
+    print("Data saved to: " + location)
+except:
+    print("Error saving data to: " + location)
+    print("Data not saved")
