@@ -104,8 +104,12 @@ class Experiment(object):
         ## TODO: exception for error handling, print out error message
 
         rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor")
-        zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", Trigger)
-        zero_ftsensor(TriggerRequest())
+        try:
+            zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", Trigger)
+            zero_ftsensor(TriggerRequest())
+            print("FT sensor zeroed")
+        except rospy.ServiceException as e:
+            print("Service call failed: %s" % e)
 
         ### Subscriber for wrench data
         rospy.Subscriber("/wrench", WrenchStamped, self.wrench_cb)
@@ -150,9 +154,9 @@ class Experiment(object):
         move_group = self.move_group
         self.home =  move_group.get_current_pose().pose
         self.actual_home = move_group.get_current_pose().pose
-        self.actual_home.position.x = 0
-        self.actual_home.position.y = 0.38
-        self.actual_home.position.y = 0.13
+        # self.actual_home.position.x = 0
+        # self.actual_home.position.y = 0.38
+        # self.actual_home.position.y = 0.13
 
         self.data = {'force':[],
                      'position':[],
@@ -504,14 +508,14 @@ class Experiment(object):
                 )  # jump_threshold 
                 move_group.execute(plan, wait=True)
 
-                time.sleep(3)
+                time.sleep(2)
 
             else:
 
                 if current_position.y > y_max:
                     out_of_bounds = True
 
-                time.sleep(3)
+                time.sleep(2)
 
                 waypoints = []        
                 wpose.position.y = wpose.position.y - total_increment  # and sideways (y)
@@ -521,7 +525,7 @@ class Experiment(object):
                 )  # jump_threshold 
                 move_group.execute(plan, wait=True)
 
-                time.sleep(3)
+                time.sleep(2)
 
                 break
 
@@ -533,7 +537,7 @@ class Experiment(object):
 
         waypoints = []        
         wpose.position.x = wpose.position.x - x_increment  # and sideways (y)
-        wpose.position.z = wpose.position.z - z_increment  # and sideways (y)
+        wpose.position.z = wpose.position.z + z_increment  # and sideways (y)
         waypoints.append(copy.deepcopy(wpose))
         (plan, fraction) = move_group.compute_cartesian_path(
             waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
@@ -547,31 +551,51 @@ class Experiment(object):
         # we want to servo in the XY plane until we are no longer in contact with the pole (out of bounds)
         # we will first move in the positive x direction until we are out of bounds
         # then we will move in the negative x direction until we are out of bounds
-
+        no_positive_x = True
         while True:
             out_of_bounds = self.moveForwardUntilForce(y_max=0.42)
             if not out_of_bounds:
+                no_positive_x = False
                 self.moveXZ(x_increment=x_increment)
             else:
                 break
         
         self.moveHome()
 
+        no_negative_x = True
         while True:
             out_of_bounds = self.moveForwardUntilForce(y_max=0.42)
             if not out_of_bounds:
+                no_negative_x = False
                 self.moveXZ(x_increment=-x_increment)
             else:
                 break
         
         self.moveHome()
+        
+        # return true if we were able to servo in both directions
+        # return false if we were not able to servo in both directions
+        # signal for servoInXYZ to stop
+        return no_positive_x and no_negative_x
     
     def servoInXYZ(self, contact_force=3, x_increment=0.01, z_increment=0.01):
-        # TODO: implement this function using servoInXY and moveXZ somehow?
-        # current simple idea is to do a 2D servo in ZY for each x value
-        # maybe look into servoing in 3D?
-        pass
+        # current logic for this is to servo in the XY plane until we are out of bounds
+        # move in the positive z direction
+        # and repeat until we get the signal to stop from servoInXY
+        
+        while True:
+            done = self.servoInXY(contact_force=contact_force, x_increment=x_increment)
+            if not done:
+                self.moveXZ(z_increment=z_increment)
+                self.updateHome()
+            else:
+                break
+        
+        self.moveActualHome()
 
+
+    def updateHome(self):
+        self.home = self.move_group.get_current_pose().pose
 
     def moveHome(self):
         move_group = self.move_group
@@ -607,11 +631,12 @@ tactile_sensor = "Digit"
 
 mp = Experiment()
 
-mp.moveActualHome()
+mp.servoInXYZ()
 
-# mp.servoInXY()
-
-# # create unique filename using time, data, and type of tactile sensor
-# # save in /data folder
-# filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
-# mp.saveData('../data/'+tactile_sensor+'/'+filename)
+# create unique filename using time, data, and type of tactile sensor
+# save in /data folder
+# TODO: make this an absolute path
+filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
+cwd = os.getcwd()
+location = os.path.join(cwd, 'data', tactile_sensor, filename)
+mp.saveData(location)
