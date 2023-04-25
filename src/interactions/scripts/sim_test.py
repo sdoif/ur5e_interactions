@@ -66,7 +66,7 @@ def all_close(goal, actual, tolerance):
 
 class Experiment(object):
 
-    def __init__(self):
+    def __init__(self, ts):
         super(Experiment, self).__init__()
 
         ## First initialize `moveit_commander`_ and a `rospy`_ node:
@@ -162,6 +162,8 @@ class Experiment(object):
                      'position':[],
                      'tactile': [],
                      'time':[]}
+
+        self.tactile_sensor = ts
         
     def go_to_joint_state(self):
         # Copy class variables to local variables to make the web tutorials more clear.
@@ -365,32 +367,6 @@ class Experiment(object):
 
         # If we exited the while loop without returning then we timed out
         return False
-        ## END_SUB_TUTORIAL
-
-    def add_box(self, timeout=4):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        box_name = self.box_name
-        scene = self.scene
-
-        ## BEGIN_SUB_TUTORIAL add_box
-        ##
-        ## Adding Objects to the Planning Scene
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        ## First, we will create a box in the planning scene between the fingers:
-        box_pose = geometry_msgs.msg.PoseStamped()
-        box_pose.header.frame_id = "panda_hand"
-        box_pose.pose.orientation.w = 1.0
-        box_pose.pose.position.z = 0.11  # above the panda_hand frame
-        box_name = "box"
-        scene.add_box(box_name, box_pose, size=(0.075, 0.075, 0.075))
-
-        ## END_SUB_TUTORIAL
-        # Copy local variables back to class variables. In practice, you should use the class
-        # variables directly unless you have a good reason not to.
-        self.box_name = box_name
-        return self.wait_for_state_update(box_is_known=True, timeout=timeout)
 
     def attach_box(self, timeout=4):
         # Copy class variables to local variables to make the web tutorials more clear.
@@ -441,28 +417,6 @@ class Experiment(object):
         # We wait for the planning scene to update.
         return self.wait_for_state_update(
             box_is_known=True, box_is_attached=False, timeout=timeout
-        )
-
-    def remove_box(self, timeout=4):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        box_name = self.box_name
-        scene = self.scene
-
-        ## BEGIN_SUB_TUTORIAL remove_object
-        ##
-        ## Removing Objects from the Planning Scene
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        ## We can remove the box from the world.
-        scene.remove_world_object(box_name)
-
-        ## **Note:** The object must be detached before we can remove it from the world
-        ## END_SUB_TUTORIAL
-
-        # We wait for the planning scene to update.
-        return self.wait_for_state_update(
-            box_is_attached=False, box_is_known=False, timeout=timeout
         )
     
     def wrench_cb(self, data):
@@ -610,7 +564,24 @@ class Experiment(object):
         move_group.execute(plan, wait=True)
     
     def saveData(self, filename):
-        with open(filename, 'wb') as handle:
+        # currently we are saving the data in a pickle file
+        # the data it saves is timestamped force, pose and tactile sensor data
+
+        # create unique filename using time, data, and type of tactile sensor
+        filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
+
+        # Get the absolute path of the directory containing the script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Construct the absolute path of the data file
+        data_dir = os.path.join(script_dir, '..', 'data', self.tactile_sensor)
+        location = os.path.join(data_dir, filename)
+
+        # Create the directory if it doesn't exist
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+        
+        with open(location, 'wb') as handle:
             pickle.dump(self.data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
     def moveActualHome(self):
@@ -625,37 +596,48 @@ class Experiment(object):
         )  # jump_threshold
         move_group.execute(plan, wait=True)
 
-    
+    def addEnvironment(self):
+        # the purpose of this function is to add the environment to the scene
+        # this will allow us to see the environment in rviz
+        # and ensure there are no collisions with the environment
+        scene = self.scene
+        
+        # first we add the wall, which is 40cm behind the robot
+        # it is assumed that the wall is 4m tall and 10m wide
+        # the wall is 0.4m thick
+        wall_pose = geometry_msgs.msg.PoseStamped()
+        wall_pose.header.frame_id = "base"
+        wall_pose.pose.position.x = 0
+        wall_pose.pose.position.y = 0.2
+        wall_pose.pose.position.z = 0
+        wall_pose.pose.orientation.z = 0.7071
+        wall_pose.pose.orientation.w = 0.7071
+        scene.add_box("wall", wall_pose, (0.001, 5, 4))
+
+        # ensure robot can't collide with wall
+        self.move_group.set_path_constraints(constraints)
+
+
+    def removeEnvironment(self):
+        scene = self.scene
+        scene.remove_world_object("wall")
 
             
 tactile_sensor = "Digit"
 
-mp = Experiment()
+mp = Experiment(tactile_sensor)
 
-mp.servoInXY()
+# test add environment
+mp.addEnvironment()
 
+#wait for user to press enter
+input("Press Enter to continue...")
+
+mp.removeEnvironment()
 
 ### Data Saving ###
-# currently we are saving the data in a pickle file
-# the data it saves is timestamped force, pose and tactile sensor data
-
-# create unique filename using time, data, and type of tactile sensor
-filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
-
-# Get the absolute path of the directory containing the script
-script_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Construct the absolute path of the data file
-data_dir = os.path.join(script_dir, '..', 'data', tactile_sensor)
-location = os.path.join(data_dir, filename)
-
-# Create the directory if it doesn't exist
-if not os.path.exists(data_dir):
-    os.makedirs(data_dir)
-
-try:
-    mp.saveData(location)
-    print("Data saved to: " + location)
-except:
-    print("Error saving data to: " + location)
-    print("Data not saved")
+# try:
+#     mp.saveData()
+#     print("Data saved")
+# except:
+#     print("Data not saved")
