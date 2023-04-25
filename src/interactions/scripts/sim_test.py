@@ -117,7 +117,7 @@ class Experiment(object):
         self.torque = [0, 0, 0]
 
         ## Subscribe to Digit topic to obtain tactile data
-        rospy.Subscriber("/Digit", Image, self.digit_cb)
+        rospy.Subscriber("/DigitFrames", Image, self.digit_cb)
         self.bridge = CvBridge()
         self.digit = None
 
@@ -469,9 +469,9 @@ class Experiment(object):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
 
     def digit_cb(self, data):
-        print("digit_cb called")
+        rospy.loginfo("digit")
         ## convert data.data using cvbridge
-        frame = self.bridge.imgmsg_to_cv2(data, "bgr8")        
+        frame = self.bridge.imgmsg_to_cv2(data)        
         # obtain cartesian coordinates at current position
         # store current force, coordinates, frames, and time in self.data dictionary
         # format time as day-month-year-hour-minute-second-millisecond
@@ -632,7 +632,7 @@ tactile_sensor = "Digit"
 
 mp = Experiment()
 
-mp.servoInXYZ()
+mp.servoInXY()
 
 
 ### Data Saving ###
