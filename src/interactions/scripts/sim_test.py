@@ -476,10 +476,10 @@ class Experiment(object):
         # store current force, coordinates, frames, and time in self.data dictionary
         # format time as day-month-year-hour-minute-second-millisecond
         current_position =  self.move_group.get_current_pose().pose
-        self.data.force.append(self.force)
-        self.data.position.append(current_position)
-        self.data.tactile.append(frame)
-        self.data.time.append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
+        self.data['force'].append(self.force)
+        self.data['position'].append(current_position)
+        self.data['tactile'].append(frame)
+        self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
 
     def moveForwardUntilForce(self, increment = 0.005, max_force = 3, y_max = 0.42):
         move_group = self.move_group
