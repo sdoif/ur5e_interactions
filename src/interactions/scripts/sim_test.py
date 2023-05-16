@@ -9,6 +9,7 @@ import geometry_msgs.msg
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from std_srvs.srv import Trigger, TriggerRequest
+from rospy.rostime import Duration
 
 from datetime import datetime 
 import os
@@ -27,6 +28,8 @@ except:  # For Python 2 compatibility
         return sqrt(sum((p_i - q_i) ** 2.0 for p_i, q_i in zip(p, q)))
 
 import time
+import numpy as np
+import math
 
 from std_msgs.msg import String
 from moveit_commander.conversions import pose_to_list
@@ -103,23 +106,18 @@ class Experiment(object):
         ## service has type std_srvs/Trigger
         ## exception for error handling, print out error message
 
-        rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor")
         try:
+            rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor", timeout=5)
             zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", Trigger)
             zero_ftsensor(TriggerRequest())
             print("FT sensor zeroed")
-        except rospy.ServiceException as e:
-            print("Service call failed: %s" % e)
+        except:
+            print("Service call failed")
 
         ### Subscriber for wrench data
         rospy.Subscriber("/wrench", WrenchStamped, self.wrench_cb)
         self.force = [0, 0, 0]
         self.torque = [0, 0, 0]
-
-        ## Subscribe to Digit topic to obtain tactile data
-        rospy.Subscriber("/DigitFrames", Image, self.digit_cb)
-        self.bridge = CvBridge()
-        self.digit = None
 
         ## Getting Basic Information
         ## ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -154,14 +152,20 @@ class Experiment(object):
         move_group = self.move_group
         self.home =  move_group.get_current_pose().pose
         self.actual_home = move_group.get_current_pose().pose
-        # self.actual_home.position.x = 0
-        # self.actual_home.position.y = 0.38
-        # self.actual_home.position.y = 0.13
+        self.aactual_home = self.actual_home
+        self.aactual_home.position.x = 0
+        self.aactual_home.position.y = 0.38
+        self.aactual_home.position.y = 0.13
 
         self.data = {'force':[],
                      'position':[],
                      'tactile': [],
                      'time':[]}
+
+        ## Subscribe to Digit topic to obtain tactile data
+        rospy.Subscriber("/DigitFrames", Image, self.digit_cb)
+        self.bridge = CvBridge()
+        self.digit = None
 
         self.tactile_sensor = ts
         
@@ -367,57 +371,6 @@ class Experiment(object):
 
         # If we exited the while loop without returning then we timed out
         return False
-
-    def attach_box(self, timeout=4):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        box_name = self.box_name
-        robot = self.robot
-        scene = self.scene
-        eef_link = self.eef_link
-        group_names = self.group_names
-
-        ## BEGIN_SUB_TUTORIAL attach_object
-        ##
-        ## Attaching Objects to the Robot
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        ## Next, we will attach the box to the Panda wrist. Manipulating objects requires the
-        ## robot be able to touch them without the planning scene reporting the contact as a
-        ## collision. By adding link names to the ``touch_links`` array, we are telling the
-        ## planning scene to ignore collisions between those links and the box. For the Panda
-        ## robot, we set ``grasping_group = 'hand'``. If you are using a different robot,
-        ## you should change this value to the name of your end effector group name.
-        grasping_group = "panda_hand"
-        touch_links = robot.get_link_names(group=grasping_group)
-        scene.attach_box(eef_link, box_name, touch_links=touch_links)
-        ## END_SUB_TUTORIAL
-
-        # We wait for the planning scene to update.
-        return self.wait_for_state_update(
-            box_is_attached=True, box_is_known=False, timeout=timeout
-        )
-
-    def detach_box(self, timeout=4):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        box_name = self.box_name
-        scene = self.scene
-        eef_link = self.eef_link
-
-        ## BEGIN_SUB_TUTORIAL detach_object
-        ##
-        ## Detaching Objects from the Robot
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        ## We can also detach and remove the object from the planning scene:
-        scene.remove_attached_object(eef_link, name=box_name)
-        ## END_SUB_TUTORIAL
-
-        # We wait for the planning scene to update.
-        return self.wait_for_state_update(
-            box_is_known=True, box_is_attached=False, timeout=timeout
-        )
     
     def wrench_cb(self, data):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
@@ -548,6 +501,55 @@ class Experiment(object):
         
         self.moveActualHome()
 
+    def getPositionAndLoop(self):
+        # loop and print current position until enter is pressed
+        move_group = self.move_group
+
+        while True:
+            wpose = move_group.get_current_pose().pose
+            print(wpose)
+            key = input("Press Enter to continue or type 'x' to quit: ")
+            if key == "":
+                continue
+            elif key == "x":
+                break
+    
+    def circleApproach(self, n = 8):
+        # Define the parameters of the circle
+        r = 0.15
+        cx = 0
+        cy = -0.5
+
+        move_group = self.move_group
+        wpose = self.move_group.get_current_pose().pose   
+
+
+        for i in range(n):
+            # current_position = move_group.get_current_pose().pose.position
+
+            # print(current_position)
+
+            angle = 2 * math.pi * i / n
+            x = cx + r * math.cos(angle)
+            y = cy + r * math.sin(angle)
+            if abs(y) <= 0.5:
+                print(f'Moving to: ({x},{y})')
+                inn = input('X to abort') 
+                if inn=='x':
+                    print('skipped')
+                else:
+                    waypoints = []
+                    wpose.position.x = x
+                    wpose.position.y = y
+                    waypoints.append(copy.deepcopy(wpose))
+            
+                    (plan, fraction) = move_group.compute_cartesian_path(
+                        waypoints, 0.01, 0.0 # waypoints to follow  # eef_step
+                    )  # jump_threshold 
+                    plan.joint_trajectory.points[0].time_from_start = Duration.from_sec(0.0005)
+                    move_group.execute(plan, wait=True)
+                    print(fraction)
+                 
 
     def updateHome(self):
         self.home = self.move_group.get_current_pose().pose
@@ -563,7 +565,7 @@ class Experiment(object):
         )  # jump_threshold 
         move_group.execute(plan, wait=True)
     
-    def saveData(self, filename):
+    def saveData(self):
         # currently we are saving the data in a pickle file
         # the data it saves is timestamped force, pose and tactile sensor data
 
@@ -594,6 +596,18 @@ class Experiment(object):
         (plan, fraction) = move_group.compute_cartesian_path(
             waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
         )  # jump_threshold
+        move_group.execute(plan, wait=True)     
+
+    def moveStandardHome(self):
+        move_group = self.move_group
+        
+        wpose = self.aactual_home
+        waypoints = []
+
+        waypoints.append(copy.deepcopy(wpose))
+        (plan, fraction) = move_group.compute_cartesian_path(
+            waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
+        )  # jump_threshold
         move_group.execute(plan, wait=True)
 
     def addEnvironment(self):
@@ -612,15 +626,32 @@ class Experiment(object):
         wall_pose.pose.position.z = 0
         wall_pose.pose.orientation.z = 0.7071
         wall_pose.pose.orientation.w = 0.7071
-        scene.add_box("wall", wall_pose, (0.001, 5, 4))
+        scene.add_box("wall", wall_pose, (0.001, 5, 2))
 
-        # ensure robot can't collide with wall
-        self.move_group.set_path_constraints(constraints)
+        # add the roof, which is 1m above the base
+        # it is assumed that the roof is 10m wide and 10m deep
+        # the roof is 0.01m thick
+        roof_pose = geometry_msgs.msg.PoseStamped()
+        roof_pose.header.frame_id = "base"
+        roof_pose.pose.position.x = 0
+        roof_pose.pose.position.y = 0
+        roof_pose.pose.position.z = 1
+        roof_pose.pose.orientation.w = 1.0
+        scene.add_box("roof", roof_pose, (10, 2, 0.01))
 
+        roof_pose = geometry_msgs.msg.PoseStamped()
+        roof_pose.header.frame_id = "base"
+        roof_pose.pose.position.x = 0
+        roof_pose.pose.position.y = 0
+        roof_pose.pose.position.z = -0.05
+        roof_pose.pose.orientation.w = 1.0
+        scene.add_box("floor", roof_pose, (10, 2, 0.01))
 
     def removeEnvironment(self):
         scene = self.scene
         scene.remove_world_object("wall")
+        scene.remove_world_object("roof")
+        scene.remove_world_object("floor")
 
             
 tactile_sensor = "Digit"
@@ -628,14 +659,16 @@ tactile_sensor = "Digit"
 mp = Experiment(tactile_sensor)
 
 # test add environment
-mp.addEnvironment()
+#mp.addEnvironment()
 
-#wait for user to press enter
-input("Press Enter to continue...")
 
-mp.removeEnvironment()
 
-### Data Saving ###
+# #wait for user to press enter
+mp.circleApproach(20)
+
+#mp.removeEnvironment()
+
+# ## Data Saving ###
 # try:
 #     mp.saveData()
 #     print("Data saved")
