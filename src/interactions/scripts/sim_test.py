@@ -10,6 +10,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from std_srvs.srv import Trigger, TriggerRequest
 from rospy.rostime import Duration
+from tf.transformations import quaternion_from_euler
 
 from datetime import datetime 
 import os
@@ -170,51 +171,42 @@ class Experiment(object):
         self.tactile_sensor = ts
         
     def go_to_joint_state(self):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
+
         move_group = self.move_group
 
-        ## BEGIN_SUB_TUTORIAL plan_to_joint_state
-        ##
-        ## Planning to a Joint Goal
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^
-        ## The Panda's zero configuration is at a `singularity <https://www.quora.com/Robotics-What-is-meant-by-kinematic-singularity>`_, so the first
-        ## thing we want to do is move it to a slightly better configuration.
-        ## We use the constant `tau = 2*pi <https://en.wikipedia.org/wiki/Turn_(angle)#Tau_proposals>`_ for convenience:
-        # We get the joint values from the group and change some of the values:
         joint_goal = move_group.get_current_joint_values()
-        joint_goal[0] = 0
-        joint_goal[1] = -tau / 8
-        joint_goal[2] = 0
-        joint_goal[3] = -tau / 4
-        joint_goal[4] = 0
-        joint_goal[5] = tau / 6  # 1/6 of a turn
-        joint_goal[6] = 0
 
-        # The go command can be called with joint values, poses, or without any
-        # parameters if you have already set the pose or joint target for the group
-        move_group.go(joint_goal, wait=True)
-
-        # Calling ``stop()`` ensures that there is no residual movement
-        move_group.stop()
-
-        ## END_SUB_TUTORIAL
+        # loop through each joint and increment by 0.1
+        for i in range(len(joint_goal)):
+            print(f'Moving joint {i}')
+            joint_goal[i] += 0.1
+            move_group.go(joint_goal, wait=True)
+            move_group.stop()
+            time.sleep(1)
 
         # For testing:
-        current_joints = move_group.get_current_joint_values()
-        return all_close(joint_goal, current_joints, 0.01)
+        #current_joints = move_group.get_current_joint_values()
+        #return all_close(joint_goal, current_joints, 0.01)
 
-    def go_to_pose_goal(self):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
+    def setJoint(self, angle, joint=4):
+
         move_group = self.move_group
 
-        ## BEGIN_SUB_TUTORIAL plan_to_pose
-        ##
-        ## Planning to a Pose Goal
-        ## ^^^^^^^^^^^^^^^^^^^^^^^
+        joint_goal = move_group.get_current_joint_values()
+
+        joint_goal[joint] = angle
+        move_group.go(joint_goal, wait=True)
+        move_group.stop()
+
+        # For testing:
+        #current_joints = move_group.get_current_joint_values()
+        #return all_close(joint_goal, current_joints, 0.01)
+
+
+    def go_to_pose_goal(self):
+
+        move_group = self.move_group
+
         ## We can plan a motion for this group to a desired pose for the
         ## end-effector:
         pose_goal = geometry_msgs.msg.Pose()
@@ -233,8 +225,6 @@ class Experiment(object):
         # It is always good to clear your targets after planning with poses.
         # Note: there is no equivalent function for clear_joint_value_targets().
         move_group.clear_pose_targets()
-
-        ## END_SUB_TUTORIAL
 
         # For testing:
         # Note that since this section of code will not be included in the tutorials
@@ -514,50 +504,116 @@ class Experiment(object):
             elif key == "x":
                 break
     
-    def circleApproach(self, n = 8):
+    def generateCircleIncrement(self, start, n=8):
         # Define the parameters of the circle
-        r = 0.15
         cx = 0
-        cy = -0.5
+        cy = 0.5
+        r = abs(cy) - abs(start.position.y)
 
-        move_group = self.move_group
-        wpose = self.move_group.get_current_pose().pose   
-
+        # create list of waypoints
+        waypoints_list = []
 
         for i in range(n):
-            # current_position = move_group.get_current_pose().pose.position
-
-            # print(current_position)
 
             angle = 2 * math.pi * i / n
             x = cx + r * math.cos(angle)
             y = cy + r * math.sin(angle)
-            if abs(y) <= 0.5:
-                print(f'Moving to: ({x},{y})')
-                inn = input('X to abort') 
-                if inn=='x':
-                    print('skipped')
-                else:
-                    waypoints = []
-                    wpose.position.x = x
-                    wpose.position.y = y
-                    waypoints.append(copy.deepcopy(wpose))
+
+            waypoints_list.append([x,y])
+        
+        # keep only values where x=>0, then order in inreasing y
+        waypoints_list = [wp for wp in waypoints_list if wp[0] >= 0]
+        waypoints_list.sort(key=lambda x: x[1])
+
+        return waypoints_list
+    
+    def circleApproach(self, n = 8):
+
+        move_group = self.move_group
+        start = self.move_group.get_current_pose().pose   
+        cx = 0
+        cy = 0.5
+        r = abs(cy) - abs(start.position.y)
+
+        waypoints_list = self.generateCircleIncrement(start, n=n)
+        path = [start]
+
+        for (i,(x,y)) in enumerate(waypoints_list):
+
+            # calculate the angle of the arc formed by the current waypoint and the previous waypoint
+            # the arc is formed on a circle with radius r, and center (cx,cy)
+
+            if i == 0:
+                xprev = start.position.x
+                yprev = start.position.y
+
+                delta_x_prev = xprev - cx
+                delta_y_prev = yprev - cy
+                delta_x = x - cx
+                delta_y = y - cy
+                
+                # Calculate the angles
+                theta_prev = math.atan2(delta_y_prev, delta_x_prev)
+                theta = math.atan2(delta_y, delta_x)
+                
+                # Calculate the angle of the arc
+                angle = theta_prev-theta
+            else:
+                xprev = waypoints_list[i-1][0]
+                yprev = waypoints_list[i-1][1]
+
+                delta_x_prev = xprev - cx
+                delta_y_prev = yprev - cy
+                delta_x = x - cx
+                delta_y = y - cy
+                
+                # Calculate the angles
+                theta_prev = math.atan2(delta_y_prev, delta_x_prev)
+                theta = math.atan2(delta_y, delta_x)
+                
+                # Calculate the angle of the arc
+                angle = theta_prev-theta
             
-                    (plan, fraction) = move_group.compute_cartesian_path(
-                        waypoints, 0.01, 0.0 # waypoints to follow  # eef_step
-                    )  # jump_threshold 
-                    plan.joint_trajectory.points[0].time_from_start = Duration.from_sec(0.0005)
-                    move_group.execute(plan, wait=True)
-                    print(fraction)
-                 
+            wrist_angle = self.move_group.get_current_joint_values()
+            print(f'Current Joint 4 Angle: {wrist_angle[4]}')
+
+            print(f'Moving to waypoint {i}: ({x},{y})')
+
+            inn = input('X to abort') 
+            if inn=='x':
+                print('skipped')
+
+            else:
+                self.setJoint(wrist_angle[4]+angle, 4)
+                #self.setJoint(wrist_angle[3], 3)
+                waypoints = []
+                wpose = self.move_group.get_current_pose().pose   
+                wpose.position.x = x
+                wpose.position.y = y
+                waypoints.append(copy.deepcopy(wpose))
+                path.append(copy.deepcopy(wpose))
+        
+                (plan, fraction) = move_group.compute_cartesian_path(
+                    waypoints, 0.01, 0.0 # waypoints to follow  # eef_step
+                )  # jump_threshold 
+                plan.joint_trajectory.points[0].time_from_start = Duration.from_sec(0.0005)
+                move_group.execute(plan, wait=True)
+                # print joint angles
+
+                print(fraction)
+        # reverse the path
+        path.reverse()
+        self.moveHome(path)
+        path.reverse()
+        return path
+  
 
     def updateHome(self):
         self.home = self.move_group.get_current_pose().pose
 
-    def moveHome(self):
+    def moveHome(self, waypoints = []):
         move_group = self.move_group
         wpose = self.home
-        waypoints = []
 
         waypoints.append(copy.deepcopy(wpose))
         (plan, fraction) = move_group.compute_cartesian_path(
@@ -653,7 +709,97 @@ class Experiment(object):
         scene.remove_world_object("roof")
         scene.remove_world_object("floor")
 
+    def generateCircleIncrement2(self, start, n=8):
+        # Define the parameters of the circle
+        cx = 0
+        cy = 0.5
+        r = abs(cy) - abs(start.position.y)
+
+        # Create a list of waypoints with positions and orientations
+        waypoints_list = []
+
+        for i in range(n):
+            angle = 2 * math.pi * i / n
+            x = cx + r * math.cos(angle)
+            y = cy + r * math.sin(angle)
             
+            # Calculate the quaternion representing the desired orientation
+            # based on the given joint angles
+            base_joint_angle = math.radians(60)
+            shoulder_joint_angle = math.radians(-69)
+            elbow_joint_angle = math.radians(148)
+            wrist1_joint_angle = math.radians(281)
+            wrist2_joint_angle = math.radians(63)
+            wrist3_joint_angle = math.radians(65)
+            
+            # Construct the Euler angles representing the orientation
+            roll = wrist1_joint_angle
+            pitch = wrist2_joint_angle + angle  # Add the angle to change the orientation along the circle
+            yaw = wrist3_joint_angle 
+            # Generate the orientation quaternion
+            orientation = quaternion_from_euler(roll, pitch, yaw)
+            
+            waypoints_list.append([[x, y], orientation])
+
+        # Remove elements where abs(y) > 0.5
+        waypoints_list = [[point, orientation] for [point, orientation] in waypoints_list if abs(point[1]) <= 0.5]
+
+        # Split the list into two lists: one with positive x values and one with negative x values
+        waypoints_list_pos = [[point, orientation] for [point, orientation] in waypoints_list if point[0] >= 0]
+        waypoints_list_neg = [[point, orientation] for [point, orientation] in waypoints_list if point[0] < 0]
+
+        # Sort both lists by increasing y values
+        waypoints_list_pos.sort(key=lambda x: x[0][1])
+        waypoints_list_neg.sort(key=lambda x: x[0][1])
+
+        # Append the negative list to the positive list into waypoints_list
+        waypoints_list = waypoints_list_pos + waypoints_list_neg
+
+        return waypoints_list
+    
+    def circleApproach2(self, n = 8):
+
+        move_group = self.move_group
+        start = self.move_group.get_current_pose().pose   
+        cx = 0
+        cy = 0.5
+        r = abs(cy) - abs(start.position.y)
+
+        waypoints_list = self.generateCircleIncrement2(start, n=n)
+        
+        for i, ([x, y], orientation) in enumerate(waypoints_list):
+
+            print(f'Moving to waypoint {i}: ({x},{y})')
+            inn = input('X to abort') 
+            if inn=='x':
+                print('skipped')
+
+            else:
+                waypoints = []
+                wpose = self.move_group.get_current_pose().pose
+                
+                wpose.position.x = x
+                wpose.position.y = y
+                wpose.orientation.x = orientation[0]
+                wpose.orientation.y = orientation[1]
+                wpose.orientation.z = orientation[2]
+                wpose.orientation.w = orientation[3]
+
+                waypoints.append(copy.deepcopy(wpose))
+                
+                (plan, fraction) = move_group.compute_cartesian_path(
+                    waypoints, 0.01, 0.0 # waypoints to follow  # eef_step
+                )  # jump_threshold 
+                plan.joint_trajectory.points[0].time_from_start = Duration.from_sec(0.0005)
+                move_group.execute(plan, wait=True) 
+
+                print(fraction)
+
+
+        self.moveHome()
+
+import csv
+          
 tactile_sensor = "Digit"
 
 mp = Experiment(tactile_sensor)
@@ -664,7 +810,14 @@ mp = Experiment(tactile_sensor)
 
 
 # #wait for user to press enter
-mp.circleApproach(20)
+path = mp.circleApproach(20)
+print(path)
+
+# save path to pickle file
+with open('path.pkl', 'wb') as f:
+    pickle.dump(path, f)
+
+
 
 #mp.removeEnvironment()
 
