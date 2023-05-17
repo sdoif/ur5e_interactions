@@ -527,6 +527,23 @@ class Experiment(object):
 
         return waypoints_list
     
+    def calculateArcChange(self, start, end):
+        cx = 0
+        cy = 0.5
+
+        delta_x_prev = start[0] - cx
+        delta_y_prev = start[1] - cy
+        delta_x = end[0] - cx
+        delta_y = end[1] - cy
+        
+        # Calculate the angles
+        theta_prev = math.atan2(delta_y_prev, delta_x_prev)
+        theta = math.atan2(delta_y, delta_x)
+        
+        # Calculate the angle of the arc
+        angle = theta_prev-theta
+        return angle
+    
     def circleApproach(self, n = 8):
 
         move_group = self.move_group
@@ -544,73 +561,45 @@ class Experiment(object):
             # the arc is formed on a circle with radius r, and center (cx,cy)
 
             if i == 0:
-                xprev = start.position.x
-                yprev = start.position.y
-
-                delta_x_prev = xprev - cx
-                delta_y_prev = yprev - cy
-                delta_x = x - cx
-                delta_y = y - cy
-                
-                # Calculate the angles
-                theta_prev = math.atan2(delta_y_prev, delta_x_prev)
-                theta = math.atan2(delta_y, delta_x)
-                
-                # Calculate the angle of the arc
-                angle = theta_prev-theta
+                angle = self.calculateArcChange([start.position.x, start.position.y], [x,y])
             else:
-                xprev = waypoints_list[i-1][0]
-                yprev = waypoints_list[i-1][1]
-
-                delta_x_prev = xprev - cx
-                delta_y_prev = yprev - cy
-                delta_x = x - cx
-                delta_y = y - cy
-                
-                # Calculate the angles
-                theta_prev = math.atan2(delta_y_prev, delta_x_prev)
-                theta = math.atan2(delta_y, delta_x)
-                
-                # Calculate the angle of the arc
-                angle = theta_prev-theta
+                angle = self.calculateArcChange(waypoints_list[i-1], [x,y])
             
             wrist_angle = self.move_group.get_current_joint_values()
-            print(f'Current Joint 4 Angle: {wrist_angle[4]}')
 
             print(f'Moving to waypoint {i}: ({x},{y})')
 
-            inn = input('X to abort') 
-            if inn=='x':
-                print('skipped')
+            time.sleep(1)
 
-            else:
-                waypoints = []
-                wpose = self.move_group.get_current_pose().pose   
+            
+            waypoints = []
+            wpose = self.move_group.get_current_pose().pose   
 
-                roll, pitch, yaw = euler_from_quaternion([wpose.orientation.x, 
-                                                wpose.orientation.y, 
-                                                wpose.orientation.z, 
-                                                wpose.orientation.w])  # Keep current pitch and roll
-                yaw -= angle
-                q = quaternion_from_euler(roll, pitch, yaw)
-                
-                wpose.position.x = x
-                wpose.position.y = y
-                wpose.orientation.x = q[0]
-                wpose.orientation.y = q[1]
-                wpose.orientation.z = q[2]
-                wpose.orientation.w = q[3]
-                waypoints.append(copy.deepcopy(wpose))
-                path.append(copy.deepcopy(wpose))
-        
-                (plan, fraction) = move_group.compute_cartesian_path(
-                    waypoints, 0.01, 0.0 # waypoints to follow  # eef_step
-                )  # jump_threshold 
-                plan.joint_trajectory.points[0].time_from_start = Duration.from_sec(0.0005)
-                move_group.execute(plan, wait=True)
-                # print joint angles
+            roll, pitch, yaw = euler_from_quaternion([wpose.orientation.x, 
+                                            wpose.orientation.y, 
+                                            wpose.orientation.z, 
+                                            wpose.orientation.w])  # Keep current pitch and roll
+            yaw -= angle
+            q = quaternion_from_euler(roll, pitch, yaw)
+            
+            wpose.position.x = x
+            wpose.position.y = y
+            wpose.orientation.x = q[0]
+            wpose.orientation.y = q[1]
+            wpose.orientation.z = q[2]
+            wpose.orientation.w = q[3]
+            waypoints.append(copy.deepcopy(wpose))
+            path.append(copy.deepcopy(wpose))
+    
+            (plan, fraction) = move_group.compute_cartesian_path(
+                waypoints, 0.01, 0.0 # waypoints to follow  # eef_step
+            )  # jump_threshold 
+            plan.joint_trajectory.points[0].time_from_start = Duration.from_sec(0.0005)
+            move_group.execute(plan, wait=True)
+            # print joint angles
 
-                print(fraction)
+            print(fraction)
+
         # reverse the path
         path.reverse()
         self.moveHome()
@@ -744,8 +733,8 @@ class Experiment(object):
             
             # Construct the Euler angles representing the orientation
             roll = wrist1_joint_angle
-            pitch = wrist2_joint_angle + angle  # Add the angle to change the orientation along the circle
-            yaw = wrist3_joint_angle 
+            pitch = wrist2_joint_angle 
+            yaw = wrist3_joint_angle + angle  # Add the angle to change the orientation along the circle
             # Generate the orientation quaternion
             orientation = quaternion_from_euler(roll, pitch, yaw)
             
@@ -820,7 +809,7 @@ mp = Experiment(tactile_sensor)
 
 
 # #wait for user to press enter
-path = mp.circleApproach(20)
+path = mp.circleApproach(15)
 print(path)
 
 # save path to pickle file
