@@ -10,7 +10,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from std_srvs.srv import Trigger, TriggerRequest
 from rospy.rostime import Duration
-from tf.transformations import quaternion_from_euler
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
 
 from datetime import datetime 
 import os
@@ -584,12 +584,22 @@ class Experiment(object):
                 print('skipped')
 
             else:
-                self.setJoint(wrist_angle[4]+angle, 4)
-                #self.setJoint(wrist_angle[3], 3)
                 waypoints = []
                 wpose = self.move_group.get_current_pose().pose   
+
+                roll, pitch, yaw = euler_from_quaternion([wpose.orientation.x, 
+                                                wpose.orientation.y, 
+                                                wpose.orientation.z, 
+                                                wpose.orientation.w])  # Keep current pitch and roll
+                yaw -= angle
+                q = quaternion_from_euler(roll, pitch, yaw)
+                
                 wpose.position.x = x
                 wpose.position.y = y
+                wpose.orientation.x = q[0]
+                wpose.orientation.y = q[1]
+                wpose.orientation.z = q[2]
+                wpose.orientation.w = q[3]
                 waypoints.append(copy.deepcopy(wpose))
                 path.append(copy.deepcopy(wpose))
         
@@ -603,7 +613,7 @@ class Experiment(object):
                 print(fraction)
         # reverse the path
         path.reverse()
-        self.moveHome(path)
+        self.moveHome()
         path.reverse()
         return path
   
