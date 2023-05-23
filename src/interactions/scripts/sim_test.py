@@ -13,10 +13,13 @@ from cv_bridge import CvBridge
 from std_srvs.srv import Trigger, TriggerRequest
 from rospy.rostime import Duration
 from tf.transformations import quaternion_from_euler, euler_from_quaternion
+from gazebo_msgs.srv import SpawnModel, DeleteModel
 
 from datetime import datetime 
 import os
 import pickle
+import matplotlib.pyplot as plt
+import math
 
 from geometry_msgs.msg import WrenchStamped
 
@@ -110,7 +113,7 @@ class Experiment(object):
         ## exception for error handling, print out error message
 
         try:
-            rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor", timeout=5)
+            rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor", timeout=2)
             zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", Trigger)
             zero_ftsensor(TriggerRequest())
             print("FT sensor zeroed")
@@ -213,77 +216,6 @@ class Experiment(object):
         #current_joints = move_group.get_current_joint_values()
         #return all_close(joint_goal, current_joints, 0.01)
 
-
-    def go_to_pose_goal(self):
-
-        move_group = self.move_group
-
-        ## We can plan a motion for this group to a desired pose for the
-        ## end-effector:
-        pose_goal = geometry_msgs.msg.Pose()
-        pose_goal.orientation.w = 1.0
-        pose_goal.position.x = 0.4
-        pose_goal.position.y = 0.1
-        pose_goal.position.z = 0.4
-
-        move_group.set_pose_target(pose_goal)
-
-        ## Now, we call the planner to compute the plan and execute it.
-        # `go()` returns a boolean indicating whether the planning and execution was successful.
-        success = move_group.go(wait=True)
-        # Calling `stop()` ensures that there is no residual movement
-        move_group.stop()
-        # It is always good to clear your targets after planning with poses.
-        # Note: there is no equivalent function for clear_joint_value_targets().
-        move_group.clear_pose_targets()
-
-        # For testing:
-        # Note that since this section of code will not be included in the tutorials
-        # we use the class variable rather than the copied state variable
-        current_pose = self.move_group.get_current_pose().pose
-        return all_close(pose_goal, current_pose, 0.01)
-
-    def plan_cartesian_path(self, scale=1):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        move_group = self.move_group
-
-        ## BEGIN_SUB_TUTORIAL plan_cartesian_path
-        ##
-        ## Cartesian Paths
-        ## ^^^^^^^^^^^^^^^
-        ## You can plan a Cartesian path directly by specifying a list of waypoints
-        ## for the end-effector to go through. If executing  interactively in a
-        ## Python shell, set scale = 1.0.
-        ##
-        waypoints = []
-
-        wpose = move_group.get_current_pose().pose
-        wpose.position.z -= scale * 0.1  # First move up (z)
-        wpose.position.y += scale * 0.2  # and sideways (y)
-        waypoints.append(copy.deepcopy(wpose))
-
-        wpose.position.x += scale * 0.1  # Second move forward/backwards in (x)
-        waypoints.append(copy.deepcopy(wpose))
-
-        wpose.position.y -= scale * 0.1  # Third move sideways (y)
-        waypoints.append(copy.deepcopy(wpose))
-
-        # We want the Cartesian path to be interpolated at a resolution of 1 cm
-        # which is why we will specify 0.01 as the eef_step in Cartesian
-        # translation.  We will disable the jump threshold by setting it to 0.0,
-        # ignoring the check for infeasible jumps in joint space, which is sufficient
-        # for this tutorial.
-        (plan, fraction) = move_group.compute_cartesian_path(
-            waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
-        )  # jump_threshold
-
-        # Note: We are just planning, not asking move_group to actually move the robot yet:
-        return plan, fraction
-
-        ## END_SUB_TUTORIAL
-
     def display_trajectory(self, plan):
         # Copy class variables to local variables to make the web tutorials more clear.
         # In practice, you should use the class variables directly unless you have a good
@@ -310,69 +242,6 @@ class Experiment(object):
 
         ## END_SUB_TUTORIAL
 
-    def execute_plan(self, plan):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        move_group = self.move_group
-
-        ## BEGIN_SUB_TUTORIAL execute_plan
-        ##
-        ## Executing a Plan
-        ## ^^^^^^^^^^^^^^^^
-        ## Use execute if you would like the robot to follow
-        ## the plan that has already been computed:
-        move_group.execute(plan, wait=True)
-
-        ## **Note:** The robot's current joint state must be within some tolerance of the
-        ## first waypoint in the `RobotTrajectory`_ or ``execute()`` will fail
-        ## END_SUB_TUTORIAL
-
-    def wait_for_state_update(
-        self, box_is_known=False, box_is_attached=False, timeout=4
-    ):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        box_name = self.box_name
-        scene = self.scene
-
-        ## BEGIN_SUB_TUTORIAL wait_for_scene_update
-        ##
-        ## Ensuring Collision Updates Are Received
-        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        ## If the Python node was just created (https://github.com/ros/ros_comm/issues/176),
-        ## or dies before actually publishing the scene update message, the message
-        ## could get lost and the box will not appear. To ensure that the updates are
-        ## made, we wait until we see the changes reflected in the
-        ## ``get_attached_objects()`` and ``get_known_object_names()`` lists.
-        ## For the purpose of this tutorial, we call this function after adding,
-        ## removing, attaching or detaching an object in the planning scene. We then wait
-        ## until the updates have been made or ``timeout`` seconds have passed.
-        ## To avoid waiting for scene updates like this at all, initialize the
-        ## planning scene interface with  ``synchronous = True``.
-        start = rospy.get_time()
-        seconds = rospy.get_time()
-        while (seconds - start < timeout) and not rospy.is_shutdown():
-            # Test if the box is in attached objects
-            attached_objects = scene.get_attached_objects([box_name])
-            is_attached = len(attached_objects.keys()) > 0
-
-            # Test if the box is in the scene.
-            # Note that attaching the box will remove it from known_objects
-            is_known = box_name in scene.get_known_object_names()
-
-            # Test if we are in the expected state
-            if (box_is_attached == is_attached) and (box_is_known == is_known):
-                return True
-
-            # Sleep so that we give other threads time on the processor
-            rospy.sleep(0.1)
-            seconds = rospy.get_time()
-
-        # If we exited the while loop without returning then we timed out
-        return False
-    
     def wrench_cb(self, data):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
 
@@ -515,9 +384,9 @@ class Experiment(object):
             elif key == "x":
                 break
     
-    def generateCircleIncrement(self, start, cx = 0, cy = 0.5, n=8):
+    def generateCircleIncrement(self, start, cx = 0, cy = 0.5, n=8, r=0.11):
         # radius is magnitude between [cx,cy] and [start.position.x, start.position.y]
-        r = math.sqrt((start.position.x - cx)**2 + (start.position.y - cy)**2)
+        #r = math.sqrt((start.position.x - cx)**2 + (start.position.y - cy)**2)
 
         # create list of waypoints
         waypoints_list = []
@@ -530,12 +399,23 @@ class Experiment(object):
 
             waypoints_list.append([x,y])
         
-        # keep only values where x=>0, then order in inreasing y
-        waypoints_list = [wp for wp in waypoints_list if wp[0] >= cx]
-        waypoints_list = [wp for wp in waypoints_list if wp[1] <= cy]
-        waypoints_list.sort(key=lambda x: x[1])
+        def sort_points(waypoints_list, center):
+            # Compute angle for a point
+            def get_angle(point):
+                dx, dy = point[0] - center[0], point[1] - center[1]
+                return math.atan2(dy, dx)
 
-        return waypoints_list
+            # Sort points counterclockwise from the reference point
+            waypoints_list.sort(key=get_angle)
+
+            return waypoints_list
+
+        waypoints_list = [wp for wp in waypoints_list if wp[0] >= cx-(r/math.sqrt(2))]
+        waypoints_list = [wp for wp in waypoints_list if wp[1] <= cy+(r/math.sqrt(2))]
+        
+        waypoints_list = sort_points(waypoints_list, [cx,cy])
+
+        return waypoints_list, r
     
     def calculateArcChange(self, start, end, cx = 0, cy = 0.5):
 
@@ -550,17 +430,40 @@ class Experiment(object):
         
         # Calculate the angle of the arc
         angle = theta_prev-theta
+
+        if start[0] > end[0]:
+            angle = angle
+
         return angle
     
-    def circleApproach(self, n = 8, center = [0,0.5]):
+    def circleApproach(self, n = 8, center = [0,0.5], radius = 0.1, offset = 0.9):
 
         move_group = self.move_group
         start = self.move_group.get_current_pose().pose   
         cx = center[0]
         cy = center[1]
-        r = abs(cy) - abs(start.position.y)
 
-        waypoints_list = self.generateCircleIncrement(start, cx=cx, cy=cy, n=n)
+        waypoints_list,r = self.generateCircleIncrement(start, cx=cx, cy=cy, n=n)
+        # print(waypoints_list) each coordinate on a new line 
+        print(*waypoints_list, sep = "\n")
+
+        # plot waypoints
+        x = [wp[0] for wp in waypoints_list]
+        y = [wp[1] for wp in waypoints_list]
+        plt.plot(x,y, 'ro')
+        #plot center
+        plt.plot(cx,cy, 'bo')
+        plt.show()
+
+        # give option to abort function before moving
+        key = input("Press Enter to continue or type 'x' to quit: ")
+        if key == "x":
+            return
+        
+        self.moveTo([cx,cy-r])
+
+        start = self.move_group.get_current_pose().pose 
+
         path = [start]
 
         for (i,(x,y)) in enumerate(waypoints_list):
@@ -578,7 +481,6 @@ class Experiment(object):
             print(f'Moving to waypoint {i}: ({x},{y})')
 
             time.sleep(1)
-
             
             #waypoints = []
             wpose = self.move_group.get_current_pose().pose   
@@ -596,38 +498,35 @@ class Experiment(object):
             wpose.orientation.y = q[1]
             wpose.orientation.z = q[2]
             wpose.orientation.w = q[3]
-            #waypoints.append(copy.deepcopy(wpose))
+            
             path.append(copy.deepcopy(wpose))
-    
-            #(plan, fraction) = move_group.compute_cartesian_path(
-            #    waypoints, 0.01, 0.0 # waypoints to follow  # eef_step
-            #)  # jump_threshold 
-            #plan.joint_trajectory.points[0].time_from_start = Duration.from_sec(0.0005)
-            #move_group.execute(plan, wait=True)
-            # print joint angles
+            
+            move_group.go(wpose, wait=True)   
 
+            centerPath = self.moveToObjectCenter([cx,cy], offset=offset)
+            
             move_group.go(wpose, wait=True)
-
-            #print(fraction)
-            centerPath = self.moveToObjectCenter([cx,cy])
-            move_group.go(wpose, wait=True)
+            
             path.append(copy.deepcopy(centerPath))
 
         return path
 
-    def moveToObjectCenter(self, center):
+    def moveToObjectCenter(self, center, offset = 0.9):
         print('Starting moveToObjectCenter')
         # move to the center of the object
         move_group = self.move_group
 
         wpose = move_group.get_current_pose().pose
-        wpose.position.x = center[0]
-        wpose.position.y = center[1]
+
+        wpose.position.x = wpose.position.x + offset * (center[0] - wpose.position.x)
+        wpose.position.y = wpose.position.y + offset * (center[1] - wpose.position.y)
+
         move_group.go(wpose, wait=False)
+
         threshold = 0.01
-        # continoually command the robot to move to the center of the object until self.force[2] > 3
         path = []
         timeout = 0
+
         while True:
             current_pose = move_group.get_current_pose().pose
             path.append(current_pose)
@@ -639,67 +538,30 @@ class Experiment(object):
                 self.test_interrupt = 0
                 break
             # TODO: else if it reaches within a threshold of the center of the object, break
-            elif abs(current_pose.position.x - center[0]) < threshold and abs(current_pose.position.y - center[1]) < threshold:
+            elif abs(current_pose.position.x - wpose.position.x) < threshold and abs(current_pose.position.y - wpose.position.y) < threshold:
                 timeout += 1
                 if timeout > 10000:
                     print('Timeout. Aborting motion.')
                     move_group.stop()
                     time.sleep(2)  # Pause for 2 seconds
                     break
-                    # Perform linear interpolation towards the goal pose
-            else:
-                current_position = np.array([current_pose.position.x, current_pose.position.y, current_pose.position.z])
-                goal_position = np.array([center[0], center[1], current_pose.position.z])
-                distance = np.linalg.norm(current_position - goal_position)
-
-                if distance > threshold:
-                    t = threshold / distance
-                    intermediate_position = (1 - t) * current_position + t * goal_position
-
-                    intermediate_pose = current_pose
-                    intermediate_pose.position.x = intermediate_position[0]
-                    intermediate_pose.position.y = intermediate_position[1]
-                    intermediate_pose.position.z = intermediate_position[2]
-                    move_group.go(intermediate_pose, wait=False)
-
         return path
                 
-    def interpolateAndMove(self, start_pose, end_pose):
-        print('Starting interpolateAndMove')
-        # move to the start pose
-        move_group = self.move_group
-        move_group.go(start_pose, wait=False)
+    def generateLinearWaypoints(self, start_position, end_position, num_waypoints):
+        waypoints = []
+        delta_x = (end_position.position.x - start_position.position.x) / (num_waypoints + 1)
+        delta_y = (end_position.position.y - start_position.position.y) / (num_waypoints + 1)
+        
+        waypoint = start_position
+        
+        for i in range(num_waypoints):
+            waypoint.position.x = start_position.position.x + delta_x * (i + 1)
+            waypoint.position.y = start_position.position.y + delta_y * (i + 1)
+            waypoint.position.z = start_position.position.z  # Keep z-coordinate constant
+            waypoint.orientation = start_position.orientation  # Keep orientation constant
+            waypoints.append(waypoint)
 
-        # Linear interpolation
-        num_steps = 100  # Number of interpolation steps
-        delta = 1.0 / num_steps
-
-        # Compute and execute the path step by step
-        for i in range(num_steps + 1):
-            t = i * delta
-            # Interpolate position
-            interp_x = start_pose.position.x + t * (end_pose.position.x - start_pose.position.x)
-            interp_y = start_pose.position.y + t * (end_pose.position.y - start_pose.position.y)
-            interp_z = start_pose.position.z + t * (end_pose.position.z - start_pose.position.z)
-
-            # Create the interpolated pose
-            interp_pose = Pose()
-            interp_pose.position.x = interp_x
-            interp_pose.position.y = interp_y
-            interp_pose.position.z = interp_z
-            
-
-            # Command the robot to move to the interpolated pose
-            move_group.go(interp_pose, wait=False)
-
-            # Check for interruption condition
-            if self.test_interrupt > 3:
-                print('Force exceeded threshold. Aborting motion.')
-                move_group.stop()
-                time.sleep(2)  # Pause for 2 seconds
-                move_group.clear_pose_targets()
-                self.test_interrupt = 0
-                break
+        return waypoints
 
     def updateHome(self):
         self.home = self.move_group.get_current_pose().pose
@@ -735,30 +597,42 @@ class Experiment(object):
         with open(location, 'wb') as handle:
             pickle.dump(self.data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
-    def moveActualHome(self):
+    def defineStart(self):
         move_group = self.move_group
         
-        wpose = self.actual_home
-        wpose.position.x = 0
-        waypoints = []
+        self.start = move_group.get_current_pose().pose
 
-        waypoints.append(copy.deepcopy(wpose))
-        (plan, fraction) = move_group.compute_cartesian_path(
-            waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
-        )  # jump_threshold
-        move_group.execute(plan, wait=True)     
-
-    def moveStandardHome(self):
+    def moveBack2Start(self, center):
         move_group = self.move_group
-        
-        wpose = self.aactual_home
-        waypoints = []
+        current_pose = move_group.get_current_pose().pose
 
-        waypoints.append(copy.deepcopy(wpose))
-        (plan, fraction) = move_group.compute_cartesian_path(
-            waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
-        )  # jump_threshold
-        move_group.execute(plan, wait=True)
+        radius = ((center[0]-current_pose.position.x)**2+(center[1]-current_pose.position.y)**2)**0.5
+        
+        if current_pose.position.x > center[0] and current_pose.position.y > center[1]:
+            current_pose.position.x = center[0] + radius
+            move_group.set_pose_target(current_pose)
+            move_group.go(wait=True)
+            move_group.stop()
+            move_group.clear_pose_targets()   
+
+        elif current_pose.position.x < center[0] and current_pose.position.y > center[1]:
+            current_pose.position.x = center[0] - radius
+            move_group.set_pose_target(current_pose)
+            move_group.go(wait=True)
+            move_group.stop()
+            move_group.clear_pose_targets()
+        
+        current_pose.position.y = self.start.position.y
+        current_pose.orientation = self.start.orientation
+
+        move_group.set_pose_target(current_pose)
+        move_group.go(wait=True)
+        move_group.stop()
+        move_group.clear_pose_targets()     
+        move_group.set_pose_target(self.start)
+        move_group.go(wait=True)
+        move_group.stop()
+        move_group.clear_pose_targets()     
 
     def addEnvironment(self):
         # the purpose of this function is to add the environment to the scene
@@ -803,6 +677,43 @@ class Experiment(object):
         scene.remove_world_object("roof")
         scene.remove_world_object("floor")
 
+    def moveTo(self, pose):
+        move_group = self.move_group
+        current_pose = move_group.get_current_pose().pose
+        
+        current_pose.position.x = pose[0]
+        current_pose.position.y = pose[1]
+
+        move_group.set_pose_target(current_pose)
+        plan = move_group.go(wait=True)
+
+        move_group.stop()
+        move_group.clear_pose_targets()
+
+    def spawnObj(self, center, model_path):
+        initial_pose = Pose()
+        initial_pose.position.x = center[0]
+        initial_pose.position.y = center[1]
+        initial_pose.position.z = 0
+
+        with open(model_path, "r") as f:
+            model_xml = f.read()
+
+        rospy.wait_for_service("/gazebo/spawn_sdf_model")
+        try:
+            spawn_sdf = rospy.ServiceProxy("/gazebo/spawn_sdf_model", SpawnModel)
+            resp_sdf = spawn_sdf("cylinder", model_xml, "/", initial_pose, "world")
+        except rospy.ServiceException as e:
+            rospy.logerr("Spawn SDF service call failed: {0}".format(e))
+
+    def delObj(self):
+        rospy.wait_for_service("/gazebo/delete_model")
+        try:
+            delete_model = rospy.ServiceProxy("/gazebo/delete_model", DeleteModel)
+            resp_delete = delete_model("cylinder")
+        except rospy.ServiceException as e:
+            rospy.logerr("Delete Model service call failed: {0}".format(e))
+
 
 import csv
           
@@ -810,23 +721,22 @@ tactile_sensor = "Digit"
 
 mp = Experiment(tactile_sensor)
 
-# test add environment
-#mp.addEnvironment()
+center = [-0.132,0.507]
+# center = [0,0.5]
+offset = 0.9
 
+mp.spawnObj(center, "models/cylinder.sdf")
 
+mp.defineStart()
+path = mp.circleApproach(n=20, center=center, offset=offset, radius=0.1)
+mp.moveBack2Start(center)
 
-# #wait for user to press enter
-# path = mp.moveToObjectCenter([0,0.9])
-path = mp.circleApproach(20)
-mp.moveActualHome()
+mp.delObj()
 
 # save path to pickle file
 with open('path.pkl', 'wb') as f:
     pickle.dump(path, f)
 
-
-
-#mp.removeEnvironment()
 
 # ## Data Saving ###
 # try:
