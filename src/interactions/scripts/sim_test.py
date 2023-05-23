@@ -183,6 +183,14 @@ class Experiment(object):
     def interrupt_cb(self, msg):
         print(msg.data)
         self.test_interrupt = msg.data
+
+        move_group = self.move_group
+        if self.test_interrupt > 3:
+                print('Force exceeded threshold. Aborting motion.')
+                move_group.stop()
+                time.sleep(2)  # Pause for 2 seconds
+                move_group.clear_pose_targets()
+                self.test_interrupt = 0
         
     def go_to_joint_state(self):
 
@@ -530,15 +538,7 @@ class Experiment(object):
         while True:
             current_pose = move_group.get_current_pose().pose
             path.append(current_pose)
-            if self.test_interrupt > 3:
-                print('Force exceeded threshold. Aborting motion.')
-                move_group.stop()
-                time.sleep(2)  # Pause for 2 seconds
-                move_group.clear_pose_targets()
-                self.test_interrupt = 0
-                break
-            # TODO: else if it reaches within a threshold of the center of the object, break
-            elif abs(current_pose.position.x - wpose.position.x) < threshold and abs(current_pose.position.y - wpose.position.y) < threshold:
+            if abs(current_pose.position.x - wpose.position.x) < threshold and abs(current_pose.position.y - wpose.position.y) < threshold:
                 timeout += 1
                 if timeout > 10000:
                     print('Timeout. Aborting motion.')
