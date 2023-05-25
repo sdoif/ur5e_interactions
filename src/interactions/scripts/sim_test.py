@@ -252,6 +252,7 @@ class Experiment(object):
 
     def wrench_cb(self, data):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
+        self.torque = [data.wrench.torque.x, data.wrench.torque.y, data.wrench.torque.z]
 
     def digit_cb(self, data):
         rospy.loginfo("digit")
@@ -455,20 +456,21 @@ class Experiment(object):
         # print(waypoints_list) each coordinate on a new line 
         print(*waypoints_list, sep = "\n")
 
+        self.moveTo([cx,cy-r])
+
         # plot waypoints
         x = [wp[0] for wp in waypoints_list]
         y = [wp[1] for wp in waypoints_list]
-        plt.plot(x,y, 'ro')
-        #plot center
-        plt.plot(cx,cy, 'bo')
-        plt.show()
+        # Throws tkinter error! Use only for debugging
+        # plt.plot(x,y, 'ro')
+        # #plot center
+        # plt.plot(cx,cy, 'bo')
+        # plt.show()
 
         # give option to abort function before moving
         key = input("Press Enter to continue or type 'x' to quit: ")
         if key == "x":
             return
-        
-        self.moveTo([cx,cy-r])
 
         start = self.move_group.get_current_pose().pose 
 
@@ -523,7 +525,10 @@ class Experiment(object):
         print('Starting moveToObjectCenter')
         # move to the center of the object
         move_group = self.move_group
+        move_group.set_max_velocity_scaling_factor(0.1)
+        move_group.set_max_acceleration_scaling_factor(0.1)
 
+        start = move_group.get_current_pose().pose
         wpose = move_group.get_current_pose().pose
 
         wpose.position.x = wpose.position.x + offset * (center[0] - wpose.position.x)
@@ -538,30 +543,26 @@ class Experiment(object):
         while True:
             current_pose = move_group.get_current_pose().pose
             path.append(current_pose)
-            if abs(current_pose.position.x - wpose.position.x) < threshold and abs(current_pose.position.y - wpose.position.y) < threshold:
+            if abs(self.force[2]) > 3:
+                print('Force exceeded threshold. Aborting motion.')
+                move_group.stop()
+                time.sleep(2)  # Pause for 2 seconds
+                move_group.clear_pose_targets()
+                break
+            elif abs(current_pose.position.x - wpose.position.x) < threshold and abs(current_pose.position.y - wpose.position.y) < threshold:
                 timeout += 1
-                if timeout > 10000:
+                if timeout > 1000:
                     print('Timeout. Aborting motion.')
                     move_group.stop()
                     time.sleep(2)  # Pause for 2 seconds
+                    move_group.clear_pose_targets()
                     break
+        
+        move_group.set_max_velocity_scaling_factor(0.1)
+        move_group.set_max_acceleration_scaling_factor(0.1)
+        
         return path
                 
-    def generateLinearWaypoints(self, start_position, end_position, num_waypoints):
-        waypoints = []
-        delta_x = (end_position.position.x - start_position.position.x) / (num_waypoints + 1)
-        delta_y = (end_position.position.y - start_position.position.y) / (num_waypoints + 1)
-        
-        waypoint = start_position
-        
-        for i in range(num_waypoints):
-            waypoint.position.x = start_position.position.x + delta_x * (i + 1)
-            waypoint.position.y = start_position.position.y + delta_y * (i + 1)
-            waypoint.position.z = start_position.position.z  # Keep z-coordinate constant
-            waypoint.orientation = start_position.orientation  # Keep orientation constant
-            waypoints.append(waypoint)
-
-        return waypoints
 
     def updateHome(self):
         self.home = self.move_group.get_current_pose().pose
@@ -608,6 +609,8 @@ class Experiment(object):
 
         radius = ((center[0]-current_pose.position.x)**2+(center[1]-current_pose.position.y)**2)**0.5
         
+        current_pose.orientation = self.start.orientation
+
         if current_pose.position.x > center[0] and current_pose.position.y > center[1]:
             current_pose.position.x = center[0] + radius
             move_group.set_pose_target(current_pose)
@@ -623,12 +626,13 @@ class Experiment(object):
             move_group.clear_pose_targets()
         
         current_pose.position.y = self.start.position.y
-        current_pose.orientation = self.start.orientation
+        
 
         move_group.set_pose_target(current_pose)
         move_group.go(wait=True)
         move_group.stop()
         move_group.clear_pose_targets()     
+        print(self.start)
         move_group.set_pose_target(self.start)
         move_group.go(wait=True)
         move_group.stop()
@@ -722,16 +726,17 @@ tactile_sensor = "Digit"
 mp = Experiment(tactile_sensor)
 
 center = [-0.132,0.507]
-# center = [0,0.5]
+center = [-0.23,0.517]
+center = [0,0.5]
 offset = 0.9
 
-mp.spawnObj(center, "models/cylinder.sdf")
+#mp.spawnObj(center, "models/cylinder.sdf")
 
 mp.defineStart()
-path = mp.circleApproach(n=20, center=center, offset=offset, radius=0.1)
+path = mp.circleApproach(n=10, center=center, offset=offset, radius=0.1)
 mp.moveBack2Start(center)
 
-mp.delObj()
+#mp.delObj()
 
 # save path to pickle file
 with open('path.pkl', 'wb') as f:
