@@ -72,6 +72,15 @@ def all_close(goal, actual, tolerance):
 
     return True
 
+def zeroFT():
+    try:
+        rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor", timeout=2)
+        zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", Trigger)
+        zero_ftsensor(TriggerRequest())
+        print("FT sensor zeroed")
+    except:
+        print("Service call failed")
+
 
 class Experiment(object):
 
@@ -91,12 +100,6 @@ class Experiment(object):
         ## surrounding world:
         scene = moveit_commander.PlanningSceneInterface()
 
-        ## Instantiate a `MoveGroupCommander`_ object.  This object is an interface
-        ## to a planning group (group of joints).  In this tutorial the group is the primary
-        ## arm joints in the Panda robot, so we set the group's name to "panda_arm".
-        ## If you are using a different robot, change this value to the name of your robot
-        ## arm planning group.
-        ## This interface can be used to plan and execute motions:
         group_name = "manipulator"
         move_group = moveit_commander.MoveGroupCommander(group_name)
 
@@ -112,18 +115,14 @@ class Experiment(object):
         ## service has type std_srvs/Trigger
         ## exception for error handling, print out error message
 
-        try:
-            rospy.wait_for_service("/ur_hardware_interface/zero_ftsensor", timeout=2)
-            zero_ftsensor = rospy.ServiceProxy("/ur_hardware_interface/zero_ftsensor", Trigger)
-            zero_ftsensor(TriggerRequest())
-            print("FT sensor zeroed")
-        except:
-            print("Service call failed")
-
+        zeroFT()
+        self.approaching = False
+        
         ### Subscriber for wrench data
         rospy.Subscriber("/wrench", WrenchStamped, self.wrench_cb)
         self.force = [0, 0, 0]
         self.torque = [0, 0, 0]
+        self.frame = 0
 
         ## Getting Basic Information
         ## ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -163,22 +162,11 @@ class Experiment(object):
         self.aactual_home.position.y = 0.38
         self.aactual_home.position.y = 0.13
 
-        self.data = {'force':[],
-                     'position':[],
-                     'tactile': [],
-                     'time':[]}
-
-        ## Subscribe to Digit topic to obtain tactile data
-        rospy.Subscriber("/DigitFrames", Image, self.digit_cb)
-        self.bridge = CvBridge()
-        self.digit = None
-
-        self.test_interrupt = 0
-        ## Subscribe to Interrupt topic to obtain interrupt signal AND UPDATE self.test_interrupt
-        rospy.Subscriber("/Interrupt", Int16, self.interrupt_cb)
-
+        self.pub_approaching = rospy.Publisher('Approaching', Int16, queue_size=10)
 
         self.tactile_sensor = ts
+
+        self.count = 0
 
     def interrupt_cb(self, msg):
         print(msg.data)
@@ -253,19 +241,6 @@ class Experiment(object):
     def wrench_cb(self, data):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
         self.torque = [data.wrench.torque.x, data.wrench.torque.y, data.wrench.torque.z]
-
-    def digit_cb(self, data):
-        rospy.loginfo("digit")
-        ## convert data.data using cvbridge
-        frame = self.bridge.imgmsg_to_cv2(data)        
-        # obtain cartesian coordinates at current position
-        # store current force, coordinates, frames, and time in self.data dictionary
-        # format time as day-month-year-hour-minute-second-millisecond
-        current_position =  self.move_group.get_current_pose().pose
-        self.data['force'].append(self.force)
-        self.data['position'].append(current_position)
-        self.data['tactile'].append(frame)
-        self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
 
     def moveForwardUntilForce(self, increment = 0.005, max_force = 3, y_max = 0.42):
         move_group = self.move_group
@@ -452,7 +427,7 @@ class Experiment(object):
         cx = center[0]
         cy = center[1]
 
-        waypoints_list,r = self.generateCircleIncrement(start, cx=cx, cy=cy, n=n)
+        waypoints_list,r = self.generateCircleIncrement(start, cx=cx, cy=cy, n=n, r=radius)
         # print(waypoints_list) each coordinate on a new line 
         print(*waypoints_list, sep = "\n")
 
@@ -513,20 +488,26 @@ class Experiment(object):
             
             move_group.go(wpose, wait=True)   
 
-            centerPath = self.moveToObjectCenter([cx,cy], offset=offset)
-            
+            self.approaching = True
+            self.pub_approaching.publish(1)
+            centerPath = self.moveToObjectCenter([cx,cy], offset=offset)            
             move_group.go(wpose, wait=True)
+            self.approaching = False
+            self.pub_approaching.publish(0)
+
             
             path.append(copy.deepcopy(centerPath))
+            
+            zeroFT()
 
         return path
 
     def moveToObjectCenter(self, center, offset = 0.9):
-        print('Starting moveToObjectCenter')
+        
         # move to the center of the object
         move_group = self.move_group
-        move_group.set_max_velocity_scaling_factor(0.1)
-        move_group.set_max_acceleration_scaling_factor(0.1)
+        move_group.set_max_velocity_scaling_factor(0.005)
+        move_group.set_max_acceleration_scaling_factor(0.01)
 
         start = move_group.get_current_pose().pose
         wpose = move_group.get_current_pose().pose
@@ -539,14 +520,16 @@ class Experiment(object):
         threshold = 0.01
         path = []
         timeout = 0
-
+        
+        print('Starting moveToObjectCenter')
         while True:
             current_pose = move_group.get_current_pose().pose
             path.append(current_pose)
+
             if abs(self.force[2]) > 3:
                 print('Force exceeded threshold. Aborting motion.')
                 move_group.stop()
-                time.sleep(2)  # Pause for 2 seconds
+                time.sleep(1)  # Pause for 2 seconds
                 move_group.clear_pose_targets()
                 break
             elif abs(current_pose.position.x - wpose.position.x) < threshold and abs(current_pose.position.y - wpose.position.y) < threshold:
@@ -554,13 +537,13 @@ class Experiment(object):
                 if timeout > 1000:
                     print('Timeout. Aborting motion.')
                     move_group.stop()
-                    time.sleep(2)  # Pause for 2 seconds
+                    time.sleep(1)  # Pause for 2 seconds
                     move_group.clear_pose_targets()
                     break
-        
-        move_group.set_max_velocity_scaling_factor(0.1)
-        move_group.set_max_acceleration_scaling_factor(0.1)
-        
+
+        move_group.set_max_velocity_scaling_factor(1)
+        move_group.set_max_acceleration_scaling_factor(1)
+
         return path
                 
 
@@ -604,12 +587,51 @@ class Experiment(object):
         self.start = move_group.get_current_pose().pose
 
     def moveBack2Start(self, center):
+        self.pub_approaching.publish(-1)
         move_group = self.move_group
         current_pose = move_group.get_current_pose().pose
 
         radius = ((center[0]-current_pose.position.x)**2+(center[1]-current_pose.position.y)**2)**0.5
         
+        if current_pose.position.x > center[0] and current_pose.position.y > center[1]:
+            current_pose.position.x += radius
+            move_group.set_pose_target(current_pose)
+            move_group.go(wait=True)
+            move_group.stop()
+            move_group.clear_pose_targets()   
+
+        elif current_pose.position.x < center[0] and current_pose.position.y > center[1]:
+            current_pose.position.x = center[0] - radius
+            move_group.set_pose_target(current_pose)
+            move_group.go(wait=True)
+            move_group.stop()
+            move_group.clear_pose_targets()
+        
         current_pose.orientation = self.start.orientation
+        current_pose.position.y = self.start.position.y
+        
+
+        move_group.set_pose_target(current_pose)
+        move_group.go(wait=True)
+        move_group.stop()
+        move_group.clear_pose_targets()   
+
+        # current_pose.position.x -= radius  
+        move_group.set_pose_target(self.start)
+        move_group.go(wait=True)
+        move_group.stop()
+        move_group.clear_pose_targets() 
+
+        #print(self.start)
+
+        #self.moveLinearly(self.start)  
+
+    def move2Start(self, center):
+        move_group = self.move_group
+        current_pose = move_group.get_current_pose().pose
+
+        radius = ((center[0]-current_pose.position.x)**2+(center[1]-current_pose.position.y)**2)**0.5
+        
 
         if current_pose.position.x > center[0] and current_pose.position.y > center[1]:
             current_pose.position.x = center[0] + radius
@@ -625,18 +647,41 @@ class Experiment(object):
             move_group.stop()
             move_group.clear_pose_targets()
         
+        current_pose.orientation = self.start.orientation
         current_pose.position.y = self.start.position.y
         
 
         move_group.set_pose_target(current_pose)
         move_group.go(wait=True)
         move_group.stop()
-        move_group.clear_pose_targets()     
-        print(self.start)
-        move_group.set_pose_target(self.start)
-        move_group.go(wait=True)
-        move_group.stop()
-        move_group.clear_pose_targets()     
+        move_group.clear_pose_targets()   
+
+        # current_pose.position.x -= radius  
+        # move_group.set_pose_target(current_pose)
+        # move_group.go(wait=True)
+        # move_group.stop()
+        # move_group.clear_pose_targets() 
+
+        #print(self.start)
+
+        #self.moveLinearly(self.start)  
+
+    def moveLinearly(self, goal):
+        move_group = self.move_group
+        current_pose = move_group.get_current_pose().pose
+
+        # Create a Cartesian path constraint
+        waypoints = []
+        waypoints.append(goal)
+
+        # Compute the Cartesian path
+        (plan, fraction) = self.move_group.compute_cartesian_path(
+            waypoints,  # waypoints to follow
+            0.01,       # eef_step
+            0.0)        # jump_threshold
+
+        # Execute the computed path
+        self.move_group.execute(plan, wait=True)
 
     def addEnvironment(self):
         # the purpose of this function is to add the environment to the scene
@@ -725,15 +770,17 @@ tactile_sensor = "Digit"
 
 mp = Experiment(tactile_sensor)
 
-center = [-0.132,0.507]
-center = [-0.23,0.517]
-center = [0,0.5]
+# center = [-0.132,0.507]
+# center = [-0.23,0.517]
+n = 20
+center = [-0.135,0.650]
 offset = 0.9
+radius = 0.15
 
 #mp.spawnObj(center, "models/cylinder.sdf")
 
 mp.defineStart()
-path = mp.circleApproach(n=10, center=center, offset=offset, radius=0.1)
+path = mp.circleApproach(n=n, center=center, offset=offset, radius=radius)
 mp.moveBack2Start(center)
 
 #mp.delObj()
@@ -749,3 +796,4 @@ with open('path.pkl', 'wb') as f:
 #     print("Data saved")
 # except:
 #     print("Data not saved")
+
