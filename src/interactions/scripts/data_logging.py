@@ -6,7 +6,7 @@ import rospy
 import moveit_commander
 import moveit_msgs.msg
 import geometry_msgs.msg
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, PoseStamped
 from std_msgs.msg import Int16
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -185,7 +185,28 @@ class Experiment(object):
         with open(location, 'wb') as handle:
             pickle.dump(self.data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
+    def publishPose(self):
+        # Create a publisher for the robot pose
+        pose_pub = rospy.Publisher('/robot_pose', PoseStamped, queue_size=10)
 
+        rate = rospy.Rate(60)  # Publish rate of 1 Hz (adjust as needed)
+
+        move_group = self.move_group
+
+        while not rospy.is_shutdown():
+            # Get the current pose of the end-effector
+            current_pose = move_group.get_current_pose().pose
+
+            # Create a PoseStamped message to publish the pose
+            pose_msg = PoseStamped()
+            pose_msg.header.stamp = rospy.Time.now()
+            pose_msg.header.frame_id = move_group.get_planning_frame()
+            pose_msg.pose = current_pose
+
+            # Publish the pose message
+            pose_pub.publish(pose_msg)
+
+            rate.sleep()
     
 
 
@@ -197,7 +218,9 @@ mp = Experiment(tactile_sensor)
 
 mp.LogAndLoop()
 
-## Data Saving ###
+# mp.publishPose()
+
+# Data Saving ###
 try:
     mp.saveData()
     print("Data saved")

@@ -44,9 +44,6 @@ import math
 from std_msgs.msg import String
 from moveit_commander.conversions import pose_to_list
 
-## END_SUB_TUTORIAL
-
-
 def all_close(goal, actual, tolerance):
     """
     Convenience method for testing if the values in two lists are within a tolerance of each other.
@@ -84,7 +81,6 @@ def zeroFT():
         print("FT sensor zeroed")
     except:
         print("Service call failed")
-
 
 class Experiment(object):
 
@@ -172,36 +168,6 @@ class Experiment(object):
 
         self.count = 0
 
-    def interrupt_cb(self, msg):
-        print(msg.data)
-        self.test_interrupt = msg.data
-
-        move_group = self.move_group
-        if self.test_interrupt > 3:
-                print('Force exceeded threshold. Aborting motion.')
-                move_group.stop()
-                time.sleep(2)  # Pause for 2 seconds
-                move_group.clear_pose_targets()
-                self.test_interrupt = 0
-        
-    def go_to_joint_state(self):
-
-        move_group = self.move_group
-
-        joint_goal = move_group.get_current_joint_values()
-
-        # loop through each joint and increment by 0.1
-        for i in range(len(joint_goal)):
-            print(f'Moving joint {i}')
-            joint_goal[i] += 0.1
-            move_group.go(joint_goal, wait=True)
-            move_group.stop()
-            time.sleep(1)
-
-        # For testing:
-        #current_joints = move_group.get_current_joint_values()
-        #return all_close(joint_goal, current_joints, 0.01)
-
     def setJoint(self, angle, joint=4):
 
         move_group = self.move_group
@@ -215,32 +181,6 @@ class Experiment(object):
         # For testing:
         #current_joints = move_group.get_current_joint_values()
         #return all_close(joint_goal, current_joints, 0.01)
-
-    def display_trajectory(self, plan):
-        # Copy class variables to local variables to make the web tutorials more clear.
-        # In practice, you should use the class variables directly unless you have a good
-        # reason not to.
-        robot = self.robot
-        display_trajectory_publisher = self.display_trajectory_publisher
-
-        ## BEGIN_SUB_TUTORIAL display_trajectory
-        ##
-        ## Displaying a Trajectory
-        ## ^^^^^^^^^^^^^^^^^^^^^^^
-        ## You can ask RViz to visualize a plan (aka trajectory) for you. But the
-        ## group.plan() method does this automatically so this is not that useful
-        ## here (it just displays the same trajectory again):
-        ##
-        ## A `DisplayTrajectory`_ msg has two primary fields, trajectory_start and trajectory.
-        ## We populate the trajectory_start with our current robot state to copy over
-        ## any AttachedCollisionObjects and add our plan to the trajectory.
-        display_trajectory = moveit_msgs.msg.DisplayTrajectory()
-        display_trajectory.trajectory_start = robot.get_current_state()
-        display_trajectory.trajectory.append(plan)
-        # Publish
-        display_trajectory_publisher.publish(display_trajectory)
-
-        ## END_SUB_TUTORIAL
 
     def wrench_cb(self, data):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
@@ -440,11 +380,6 @@ class Experiment(object):
         # plot waypoints
         x = [wp[0] for wp in waypoints_list]
         y = [wp[1] for wp in waypoints_list]
-        # Throws tkinter error! Use only for debugging
-        # plt.plot(x,y, 'ro')
-        # #plot center
-        # plt.plot(cx,cy, 'bo')
-        # plt.show()
 
         # give option to abort function before moving
         key = input("Press Enter to continue or type 'x' to quit: ")
@@ -506,45 +441,50 @@ class Experiment(object):
             # Print constraint yaw in degrees
             print('Constraint yaw: ', math.degrees(constraint_yaw))
             print()
-            self.enforceConstraints(wpose, constraint_yaw)
 
-            self.moveToObjectCenterWithZ(wpose, cx, cy, offset, max_z=0.155)
-
-            self.clearConstraints()
+            self.moveToObjectCenterWithZ(wpose, cx, cy, offset, constraint_yaw, max_z=0.155)
             
             zeroFT()
 
         return path
     
-    def moveToObjectCenterWithZ(self, wwpose, cx, cy, offset, max_z = 0.155):
+    def moveToObjectCenterWithZ(self, wwpose, cx, cy, offset, constraint_yaw, max_z = 0.155):
             move_group = self.move_group
             wpose = self.move_group.get_current_pose().pose
 
             while wpose.position.z < max_z:
+                # Enforce updated constraints
+                #self.enforceConstraints(wpose, constraint_yaw)
+                
+                # Move to object center
                 print('Approaching object @ z = ', wpose.position.z)
                 self.approaching = True
                 self.pub_approaching.publish(1)
-
                 centerPath = self.moveToObjectCenter([cx,cy], offset=offset) 
 
+                # Return to cicumference
                 move_group.go(wpose, wait=True)
                 self.approaching = False
                 self.pub_approaching.publish(0)
-
+                
+                # Clear constraints to increment z
+                #self.clearConstraints()
+                
+                # Increment z
                 wpose.position.z += 0.021
                 move_group.go(wpose, wait=True)
                 move_group.stop()
-                move_group.clear_pose_targets()
+                move_group.clear_pose_targets()            
 
+            # Move back to initial pose with initial height
             move_group.go(wwpose, wait=True)
-
 
     def moveToObjectCenter(self, center, offset = 0.9):
         
         # move to the center of the object
         move_group = self.move_group
-        move_group.set_max_velocity_scaling_factor(0.004)
-        move_group.set_max_acceleration_scaling_factor(0.0003)
+        #move_group.set_max_velocity_scaling_factor(0.004)
+        #move_group.set_max_acceleration_scaling_factor(0.0003)
 
         start = move_group.get_current_pose().pose
         wpose = move_group.get_current_pose().pose
@@ -583,12 +523,11 @@ class Experiment(object):
                     move_group.clear_pose_targets()
                     break
 
-        move_group.set_max_velocity_scaling_factor(1)
-        move_group.set_max_acceleration_scaling_factor(0.5)
+        #move_group.set_max_velocity_scaling_factor(1)
+        #move_group.set_max_acceleration_scaling_factor(0.5)
 
         return path
                 
-
     def updateHome(self):
         self.home = self.move_group.get_current_pose().pose
 
@@ -860,7 +799,7 @@ class Experiment(object):
         box = SolidPrimitive()
         box.type = SolidPrimitive.BOX
 
-        box.dimensions = [1, 0.01, 0.2]  # Adjust the box dimensions as needed
+        box.dimensions = [1, 0.002, 0.03]  # Adjust the box dimensions as needed
 
         constraint_region.primitives.append(box)
         constraint_region.primitive_poses.append(midpoint)  # Use the target pose as the constraint region
@@ -919,8 +858,6 @@ class Experiment(object):
         marker.action = Marker.DELETE
 
         marker_pub.publish(marker)
-
-
 
     def spawnObj(self, center, model_path):
         initial_pose = Pose()

@@ -26,7 +26,7 @@ class DigitNode(object):
 
         rospy.init_node(dsn, anonymous=True)
         print(self.fps)
-        self.loop_rate = rospy.Rate(10) 
+        self.loop_rate = rospy.Rate(5) 
         # self.loop_rate = rospy.Rate(self.fps) 
         self.pub = rospy.Publisher("DigitFrames", Image, queue_size=10)
     
