@@ -375,7 +375,10 @@ class Experiment(object):
         # print(waypoints_list) each coordinate on a new line 
         print(*waypoints_list, sep = "\n")
 
+        self.define_workspace()
+        self.enforceConstraints(start)
         self.moveTo([cx,cy-r])
+        self.clearConstraints()
 
         # plot waypoints
         x = [wp[0] for wp in waypoints_list]
@@ -424,8 +427,10 @@ class Experiment(object):
             wpose.orientation.w = q[3]
             
             path.append(copy.deepcopy(wpose))
-            
+
+            self.define_workspace()
             move_group.go(wpose, wait=True)   
+            self.clearConstraints()
 
             # self.approaching = True
             # self.pub_approaching.publish(1)
@@ -438,9 +443,6 @@ class Experiment(object):
             # path.append(copy.deepcopy(centerPath))
 
             constraint_yaw = yaw-math.pi/2
-            # Print constraint yaw in degrees
-            print('Constraint yaw: ', math.degrees(constraint_yaw))
-            print()
 
             self.moveToObjectCenterWithZ(wpose, cx, cy, offset, constraint_yaw, max_z=0.155)
             
@@ -453,8 +455,9 @@ class Experiment(object):
             wpose = self.move_group.get_current_pose().pose
 
             while wpose.position.z < max_z:
+                #self.define_workspace()
                 # Enforce updated constraints
-                #self.enforceConstraints(wpose, constraint_yaw)
+                self.enforceConstraints(wpose, constraint_yaw)
                 
                 # Move to object center
                 print('Approaching object @ z = ', wpose.position.z)
@@ -463,21 +466,32 @@ class Experiment(object):
                 centerPath = self.moveToObjectCenter([cx,cy], offset=offset) 
 
                 # Return to cicumference
-                move_group.go(wpose, wait=True)
+                npose = self.move_group.get_current_pose().pose
+                npose.position = wpose.position
+                npose.orientation = wpose.orientation
+
+                move_group.go(npose, wait=True)
                 self.approaching = False
                 self.pub_approaching.publish(0)
                 
                 # Clear constraints to increment z
-                #self.clearConstraints()
+                self.clearConstraints()
                 
                 # Increment z
+                npose = self.move_group.get_current_pose().pose
+                npose.position.z += 0.021
                 wpose.position.z += 0.021
-                move_group.go(wpose, wait=True)
+                move_group.go(npose, wait=True)
                 move_group.stop()
                 move_group.clear_pose_targets()            
 
             # Move back to initial pose with initial height
-            move_group.go(wwpose, wait=True)
+            self.define_workspace()
+            wpose = self.move_group.get_current_pose().pose
+            wpose.position = wwpose.position
+            wpose.orientation = wwpose.orientation
+            move_group.go(wpose, wait=True)
+            self.clearConstraints()
 
     def moveToObjectCenter(self, center, offset = 0.9):
         
@@ -492,8 +506,8 @@ class Experiment(object):
         wpose.position.x = wpose.position.x + offset * (center[0] - wpose.position.x)
         wpose.position.y = wpose.position.y + offset * (center[1] - wpose.position.y)
 
-        move_group.go(wpose, wait=False)
-
+        plan = move_group.go(wpose, wait=False)
+        print('PLAN: ', plan)
         # waypoints = []
         # waypoints.append(copy.deepcopy(wpose))
         # plan, fraction = move_group.compute_cartesian_path(waypoints, 0.01, 0.0)
@@ -540,27 +554,6 @@ class Experiment(object):
             waypoints, 0.01, 0.0  # waypoints to follow  # eef_step
         )  # jump_threshold 
         move_group.execute(plan, wait=True)
-    
-    def saveData(self):
-        # currently we are saving the data in a pickle file
-        # the data it saves is timestamped force, pose and tactile sensor data
-
-        # create unique filename using time, data, and type of tactile sensor
-        filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + ".pkl"
-
-        # Get the absolute path of the directory containing the script
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-
-        # Construct the absolute path of the data file
-        data_dir = os.path.join(script_dir, '..', 'data', self.tactile_sensor)
-        location = os.path.join(data_dir, filename)
-
-        # Create the directory if it doesn't exist
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir)
-        
-        with open(location, 'wb') as handle:
-            pickle.dump(self.data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
     def defineStart(self):
         move_group = self.move_group
@@ -737,11 +730,10 @@ class Experiment(object):
         target_pose = move_group.get_current_pose().pose
         target_pose.position.x += 0.2
 
-        self.enforceConstraints(start_pose, target_pose)
         self.moveTo([target_pose.position.x, target_pose.position.y])
         self.clearConstraints()
 
-        self.enforceConstraints(target_pose, start_pose)
+        self.enforceConstraints(target_pose)
         self.moveTo([start_pose.position.x, start_pose.position.y])
         self.clearConstraints()
 
@@ -757,7 +749,7 @@ class Experiment(object):
         move_group.stop()
         move_group.clear_pose_targets()
     
-    def enforceConstraints(self, start_pose, angle=math.pi):
+    def enforceConstraints(self, start_pose, angle=0):
         move_group = self.move_group
 
         # Calculate the midpoint between start and wpose
@@ -799,7 +791,7 @@ class Experiment(object):
         box = SolidPrimitive()
         box.type = SolidPrimitive.BOX
 
-        box.dimensions = [1, 0.002, 0.03]  # Adjust the box dimensions as needed
+        box.dimensions = [1.2, 0.01, 0.06]  # Adjust the box dimensions as needed
 
         constraint_region.primitives.append(box)
         constraint_region.primitive_poses.append(midpoint)  # Use the target pose as the constraint region
@@ -812,7 +804,7 @@ class Experiment(object):
 
         # Set the path constraints for the MoveGroupCommander
         move_group.set_path_constraints(constraints)
-
+        print('Constraints set: ', constraints)
         #################################
         # Visualize the path constraints#
         #################################
@@ -822,7 +814,7 @@ class Experiment(object):
         marker = Marker()
         marker.header.frame_id = move_group.get_planning_frame()
         marker.ns = "constraint"
-        marker.id = 1
+        marker.id = 2
         marker.type = Marker.CUBE
         marker.action = Marker.ADD
 
@@ -854,8 +846,100 @@ class Experiment(object):
         marker = Marker()
         marker.header.frame_id = move_group.get_planning_frame()
         marker.ns = "constraint"
-        marker.id = 1
+        marker.id = 2
         marker.action = Marker.DELETE
+
+        marker_pub.publish(marker)
+        marker.ns = "workspace"
+        marker.id = 1
+        marker_pub.publish(marker)
+
+        #self.define_workspace()
+
+
+    def define_workspace(self):
+        move_group = self.move_group
+
+        # Calculate the midpoint between start and wpose
+        midpoint = geometry_msgs.msg.Pose()
+        midpoint.position.x = 0
+        midpoint.position.y = 0.5
+        midpoint.position.z = 0.2
+
+        # Calculate the orientation of the constraint
+        roll = 0.0  # Since the constraint is parallel to the line, we can set roll to 0
+        pitch = 0.0  # Since the constraint is parallel to the line, we can set pitch to 0
+        yaw = math.pi #math.atan2(normalized_direction[1], normalized_direction[0])  # Calculate the yaw angle based on the direction vector
+
+
+        constraint_orientation = quaternion_from_euler(roll, pitch, yaw)
+
+        # Set the constraint orientation using the normalized direction vector
+        midpoint.orientation.x = constraint_orientation[0]
+        midpoint.orientation.y = constraint_orientation[1]
+        midpoint.orientation.z = constraint_orientation[2]
+        midpoint.orientation.w = constraint_orientation[3]
+
+        # Create a path constraint
+        constraints = Constraints()
+
+        # Create a position constraint to enforce a straight-line path
+        position_constraint = PositionConstraint()
+        position_constraint.header.frame_id = move_group.get_planning_frame()
+        position_constraint.link_name = move_group.get_end_effector_link()
+
+        position_constraint.target_point_offset.x = 0.0
+        position_constraint.target_point_offset.y = 0.0
+        position_constraint.target_point_offset.z = 0.0
+
+        # Specify the straight-line constraint region
+        constraint_region = BoundingVolume()
+
+        # Create a box-shaped constraint region (change width height and depth to be more or less strict)
+        box = SolidPrimitive()
+        box.type = SolidPrimitive.BOX
+
+        box.dimensions = [0.7, 0.45, 0.3]  # Adjust the box dimensions as needed
+
+        constraint_region.primitives.append(box)
+        constraint_region.primitive_poses.append(midpoint)  # Use the target pose as the constraint region
+
+        position_constraint.constraint_region = constraint_region
+        position_constraint.weight = 1
+
+        # Add the position constraint to the path constraints
+        constraints.position_constraints.append(position_constraint)
+
+        # Set the path constraints for the MoveGroupCommander
+        move_group.set_path_constraints(constraints)
+        print('Constraints set: ', constraints)
+        #################################
+        # Visualize the path constraints#
+        #################################
+
+        marker_pub = rospy.Publisher('constraint_marker', Marker, queue_size=10)
+
+        marker = Marker()
+        marker.header.frame_id = move_group.get_planning_frame()
+        marker.ns = "workspace"
+        marker.id = 1
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+
+        marker.pose = constraint_region.primitive_poses[0]
+
+        marker.scale.x = constraint_region.primitives[0].dimensions[0]
+        marker.scale.y = constraint_region.primitives[0].dimensions[1]
+        marker.scale.z = constraint_region.primitives[0].dimensions[2]
+
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 0.5  # Set transparency (0.0 = fully transparent, 1.0 = fully opaque)
+
+        marker.lifetime = rospy.Duration(0)
+
+        print('\nPublishing marker: ', marker)
 
         marker_pub.publish(marker)
 
@@ -901,8 +985,6 @@ offset = 0.7 # 0.5 = interface_z/radius (what percentage of the radius is the in
 
 mp.addEnvironment()
 
-# time.sleep(10)
-
 mp.defineStart()
 path = mp.circleApproach(n=n, center=center, offset=offset, radius=radius)
 mp.moveBack2Start(center)
@@ -916,12 +998,3 @@ mp.removeEnvironment()
 # # save path to pickle file
 # with open('path.pkl', 'wb') as f:
 #     pickle.dump(path, f)
-
-
-# ## Data Saving ###
-# try:
-#     mp.saveData()
-#     print("Data saved")
-# except:
-#     print("Data not saved")
-
