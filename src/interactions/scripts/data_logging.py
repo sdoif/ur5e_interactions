@@ -140,11 +140,13 @@ class Experiment(object):
         self.torque = [data.wrench.torque.x, data.wrench.torque.y, data.wrench.torque.z]
     
     def logSelfData(self):
-        current_position =  self.move_group.get_current_pose().pose
-        self.data['force'].append(self.force)
-        self.data['position'].append(current_position)
-        self.data['tactile'].append(self.frame)
-        self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
+        if abs(self.force[2]) > 0.3:
+            print('Logging data')
+            current_position =  self.move_group.get_current_pose().pose
+            self.data['force'].append(self.force)
+            self.data['position'].append(current_position)
+            self.data['tactile'].append(self.frame)
+            self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
 
     def digit_cb(self, data):
         
@@ -160,7 +162,8 @@ class Experiment(object):
         # loop and print current position until enter is pressed
         while True:
             if self.approaching>0:
-                self.logSelfData()
+                # self.logSelfData()
+                pass
             elif self.approaching<0:
                 break
 
@@ -181,7 +184,7 @@ class Experiment(object):
         # Create the directory if it doesn't exist
         if not os.path.exists(data_dir):
             os.makedirs(data_dir)
-        
+
         with open(location, 'wb') as handle:
             pickle.dump(self.data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         

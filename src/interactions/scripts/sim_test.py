@@ -6,7 +6,7 @@ import rospy
 import moveit_commander
 import moveit_msgs.msg
 from moveit_msgs.msg import Constraints, BoundingVolume
-from moveit_msgs.msg import PositionConstraint
+from moveit_msgs.msg import PositionConstraint, OrientationConstraint
 from shape_msgs.msg import SolidPrimitive
 import geometry_msgs.msg
 from geometry_msgs.msg import Pose
@@ -375,10 +375,9 @@ class Experiment(object):
         # print(waypoints_list) each coordinate on a new line 
         print(*waypoints_list, sep = "\n")
 
-        self.define_workspace()
-        self.enforceConstraints(start)
+        #self.enforceConstraints(start)
         self.moveTo([cx,cy-r])
-        self.clearConstraints()
+        #self.clearConstraints()
 
         # plot waypoints
         x = [wp[0] for wp in waypoints_list]
@@ -428,9 +427,9 @@ class Experiment(object):
             
             path.append(copy.deepcopy(wpose))
 
-            self.define_workspace()
+            #self.define_workspace()
             move_group.go(wpose, wait=True)   
-            self.clearConstraints()
+            #self.clearConstraints()
 
             # self.approaching = True
             # self.pub_approaching.publish(1)
@@ -444,7 +443,7 @@ class Experiment(object):
 
             constraint_yaw = yaw-math.pi/2
 
-            self.moveToObjectCenterWithZ(wpose, cx, cy, offset, constraint_yaw, max_z=0.155)
+            self.moveToObjectCenterWithZ(wpose, cx, cy, offset, constraint_yaw, max_z=0.26)
             
             zeroFT()
 
@@ -457,7 +456,7 @@ class Experiment(object):
             while wpose.position.z < max_z:
                 #self.define_workspace()
                 # Enforce updated constraints
-                self.enforceConstraints(wpose, constraint_yaw)
+                #self.define_workspace(wpose, constraint_yaw)
                 
                 # Move to object center
                 print('Approaching object @ z = ', wpose.position.z)
@@ -475,30 +474,33 @@ class Experiment(object):
                 self.pub_approaching.publish(0)
                 
                 # Clear constraints to increment z
-                self.clearConstraints()
+                #self.clearConstraints()
                 
                 # Increment z
+                #self.define_workspace()
                 npose = self.move_group.get_current_pose().pose
                 npose.position.z += 0.021
                 wpose.position.z += 0.021
                 move_group.go(npose, wait=True)
                 move_group.stop()
-                move_group.clear_pose_targets()            
+                move_group.clear_pose_targets()
+                #self.clearConstraints()
+
 
             # Move back to initial pose with initial height
-            self.define_workspace()
+            #self.define_workspace()
             wpose = self.move_group.get_current_pose().pose
             wpose.position = wwpose.position
             wpose.orientation = wwpose.orientation
             move_group.go(wpose, wait=True)
-            self.clearConstraints()
+            #self.clearConstraints()
 
     def moveToObjectCenter(self, center, offset = 0.9):
         
         # move to the center of the object
         move_group = self.move_group
-        #move_group.set_max_velocity_scaling_factor(0.004)
-        #move_group.set_max_acceleration_scaling_factor(0.0003)
+        move_group.set_max_velocity_scaling_factor(0.004)
+        move_group.set_max_acceleration_scaling_factor(0.0003)
 
         start = move_group.get_current_pose().pose
         wpose = move_group.get_current_pose().pose
@@ -537,8 +539,8 @@ class Experiment(object):
                     move_group.clear_pose_targets()
                     break
 
-        #move_group.set_max_velocity_scaling_factor(1)
-        #move_group.set_max_acceleration_scaling_factor(0.5)
+        move_group.set_max_velocity_scaling_factor(1)
+        move_group.set_max_acceleration_scaling_factor(0.7)
 
         return path
                 
@@ -678,21 +680,21 @@ class Experiment(object):
         #add imaginary walls
         left_wall_pose = geometry_msgs.msg.PoseStamped()
         left_wall_pose.header.frame_id = "base"
-        left_wall_pose.pose.position.x = -0.38
+        left_wall_pose.pose.position.x = -0.4
         left_wall_pose.pose.position.y = 0.5
         left_wall_pose.pose.position.z = 0
         left_wall_pose.pose.orientation.z = 0
         left_wall_pose.pose.orientation.w = 1
         scene.add_box("left_wall", left_wall_pose, (0.001, 5, 2))
 
-        # right_wall_pose = geometry_msgs.msg.PoseStamped()
-        # right_wall_pose.header.frame_id = "base"
-        # right_wall_pose.pose.position.x = 0.38
-        # right_wall_pose.pose.position.y = 0.5
-        # right_wall_pose.pose.position.z = 0
-        # right_wall_pose.pose.orientation.z = 0
-        # right_wall_pose.pose.orientation.w = 1
-        # scene.add_box("right_wall", right_wall_pose, (0.001, 5, 2))
+        right_wall_pose = geometry_msgs.msg.PoseStamped()
+        right_wall_pose.header.frame_id = "base"
+        right_wall_pose.pose.position.x = 0.4
+        right_wall_pose.pose.position.y = 0.5
+        right_wall_pose.pose.position.z = 0
+        right_wall_pose.pose.orientation.z = 0
+        right_wall_pose.pose.orientation.w = 1
+        #scene.add_box("right_wall", right_wall_pose, (0.001, 5, 2))
 
 
         # add the roof, which is 1m above the base
@@ -702,7 +704,7 @@ class Experiment(object):
         roof_pose.header.frame_id = "base"
         roof_pose.pose.position.x = 0
         roof_pose.pose.position.y = 0
-        roof_pose.pose.position.z = 1
+        roof_pose.pose.position.z = 0.8
         roof_pose.pose.orientation.w = 1.0
         scene.add_box("roof", roof_pose, (10, 2, 0.01))
 
@@ -713,7 +715,7 @@ class Experiment(object):
         floor_pose.pose.position.y = -0.5
         floor_pose.pose.position.z = 0.03
         floor_pose.pose.orientation.w = 1.0
-        scene.add_box("floor", floor_pose, (0.90, 0.6, 0.01))
+        scene.add_box("floor", floor_pose, (10, 0.7, 0.01))
 
     def removeEnvironment(self):
         scene = self.scene
@@ -729,13 +731,6 @@ class Experiment(object):
         start_pose = move_group.get_current_pose().pose
         target_pose = move_group.get_current_pose().pose
         target_pose.position.x += 0.2
-
-        self.moveTo([target_pose.position.x, target_pose.position.y])
-        self.clearConstraints()
-
-        self.enforceConstraints(target_pose)
-        self.moveTo([start_pose.position.x, start_pose.position.y])
-        self.clearConstraints()
 
     def moveTo(self, pose):
         move_group = self.move_group
@@ -791,7 +786,7 @@ class Experiment(object):
         box = SolidPrimitive()
         box.type = SolidPrimitive.BOX
 
-        box.dimensions = [1.2, 0.01, 0.06]  # Adjust the box dimensions as needed
+        box.dimensions = [1.2, 0.06, 0.06]  # Adjust the box dimensions as needed
 
         constraint_region.primitives.append(box)
         constraint_region.primitive_poses.append(midpoint)  # Use the target pose as the constraint region
@@ -802,9 +797,32 @@ class Experiment(object):
         # Add the position constraint to the path constraints
         constraints.position_constraints.append(position_constraint)
 
+        #################################
+        # Orientation constraint
+        #################################
+
+        # # Create an orientation constraint to enforce the end effector to remain in same orientation
+        # orientation_constraint = OrientationConstraint()
+        # orientation_constraint.header.frame_id = move_group.get_planning_frame()
+        # orientation_constraint.link_name = move_group.get_end_effector_link()
+
+        # # Set the Euler angle tolerance (currently ignored)
+        # orientation_constraint.absolute_x_axis_tolerance = 0.1
+        # orientation_constraint.absolute_y_axis_tolerance = 0.1
+        # orientation_constraint.absolute_z_axis_tolerance = 0.1
+
+        # # Set the orientation constraint quaternion
+        # orientation_constraint.orientation = midpoint.orientation
+
+        # # Set the angular weight to 1
+        # orientation_constraint.weight = 1
+
+        # # Add the orientation constraint to the path constraints
+        # constraints.orientation_constraints.append(orientation_constraint)
+
         # Set the path constraints for the MoveGroupCommander
         move_group.set_path_constraints(constraints)
-        print('Constraints set: ', constraints)
+        
         #################################
         # Visualize the path constraints#
         #################################
@@ -835,6 +853,34 @@ class Experiment(object):
 
         # for debugging
         #time.sleep(5)
+
+        # create the orientation marker
+        orientation_marker = Marker()
+        orientation_marker.header.frame_id = move_group.get_planning_frame()
+        orientation_marker.ns = "constraint"
+        orientation_marker.id = 3
+        orientation_marker.type = Marker.ARROW
+        orientation_marker.action = Marker.ADD
+
+        # set the pose of the marker to the midpoint pose
+        orientation_marker.pose = midpoint
+
+        # set the scale of the arrow (change these values as needed)
+        orientation_marker.scale.x = 0.05  # shaft diameter
+        orientation_marker.scale.y = 0.2  # head diameter
+        orientation_marker.scale.z = 0.1  # head length
+
+        # set the color of the arrow (change these values as needed)
+        orientation_marker.color.r = 0.0
+        orientation_marker.color.g = 0.0
+        orientation_marker.color.b = 1.0
+        orientation_marker.color.a = 1.0  # no transparency
+
+        # set the lifetime of the marker to 0 (marker will last indefinitely until a new one is received)
+        orientation_marker.lifetime = rospy.Duration(0)
+
+        # publish the orientation marker
+        #marker_pub.publish(orientation_marker)
     
     def clearConstraints(self):
         move_group = self.move_group
@@ -850,6 +896,9 @@ class Experiment(object):
         marker.action = Marker.DELETE
 
         marker_pub.publish(marker)
+        marker.id = 3
+        #marker_pub.publish(marker)
+
         marker.ns = "workspace"
         marker.id = 1
         marker_pub.publish(marker)
@@ -912,7 +961,7 @@ class Experiment(object):
 
         # Set the path constraints for the MoveGroupCommander
         move_group.set_path_constraints(constraints)
-        print('Constraints set: ', constraints)
+        #print('Constraints set: ', constraints)
         #################################
         # Visualize the path constraints#
         #################################
@@ -939,7 +988,7 @@ class Experiment(object):
 
         marker.lifetime = rospy.Duration(0)
 
-        print('\nPublishing marker: ', marker)
+        #print('\nPublishing marker: ', marker)
 
         marker_pub.publish(marker)
 
@@ -974,8 +1023,6 @@ tactile_sensor = "Digit"
 
 mp = Experiment(tactile_sensor)
 
-# center = [-0.132,0.507]
-# center = [-0.23,0.517]
 n = 20
 center = [-0.135,0.650]
 interface_z = 0.075
@@ -989,12 +1036,4 @@ mp.defineStart()
 path = mp.circleApproach(n=n, center=center, offset=offset, radius=radius)
 mp.moveBack2Start(center)
 
-# mp.moveToObjectCenter(center, offset)
-
-# mp.testMotion()
-
 mp.removeEnvironment()
-
-# # save path to pickle file
-# with open('path.pkl', 'wb') as f:
-#     pickle.dump(path, f)
