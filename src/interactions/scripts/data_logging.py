@@ -113,9 +113,14 @@ class Experiment(object):
         self.aactual_home = self.actual_home
 
         self.data = {'force':[],
+                     'torque':[],
                      'position':[],
                      'tactile': [],
                      'time':[]}
+        
+        self.final_log = []
+
+        self.compressed_log = []
 
         ## Subscribe to Digit topic to obtain tactile data
         rospy.Subscriber("/DigitFrames", Image, self.digit_cb)
@@ -140,13 +145,13 @@ class Experiment(object):
         self.torque = [data.wrench.torque.x, data.wrench.torque.y, data.wrench.torque.z]
     
     def logSelfData(self):
-        if abs(self.force[2]) > 0.3:
-            print('Logging data')
-            current_position =  self.move_group.get_current_pose().pose
-            self.data['force'].append(self.force)
-            self.data['position'].append(current_position)
-            self.data['tactile'].append(self.frame)
-            self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
+        #print('Logging data')
+        current_position =  self.move_group.get_current_pose().pose
+        self.data['force'].append(self.force)
+        self.data['torque'].append(self.torque)
+        self.data['position'].append(current_position)
+        self.data['tactile'].append(self.frame)
+        self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
 
     def digit_cb(self, data):
         
@@ -160,12 +165,64 @@ class Experiment(object):
 
     def LogAndLoop(self):
         # loop and print current position until enter is pressed
+        saved = True
         while True:
-            if self.approaching>0:
-                # self.logSelfData()
-                pass
+            if int(self.approaching) == 0:
+                if not saved:
+                    print('Appending last approach')
+                    self.final_log.append(self.data)
+                    self.data = {'force':[],
+                     'torque':[],
+                     'position':[],
+                     'tactile': [],
+                     'time':[]} 
+                    saved = True
+                    print('Approach ', len(self.final_log) ,' saved')
+
+            elif int(self.approaching) == 1:
+                if saved:
+                    print('New approach')
+                saved = False
+
             elif self.approaching<0:
                 break
+    
+    def compressFinalLog(self, max_distance):
+        print('Compressing data')
+
+        interactions = self.final_log
+
+        for approach in interactions:
+            index = 0
+            # determine index where contact is made
+            # by examining the force to see when abs(fz) = 1N
+            for force in approach['force']:
+                if abs(force[2]) > 1:
+                    break
+                elif index == len(approach['force']) - 0.8:
+                    break
+                index += 1 
+
+            # for the points before this index, if that are more than max_distance away from the contact index, discard them
+            # for the point at and after this index, keep them all for all fields in the dictionary
+            idx = index
+            while idx > 0:
+                    idx -=1
+                    if self.disttt(approach['position'][idx].position, approach['position'][index].position) > 0.02:
+                        break
+
+            approach['force'] = approach['force'][idx:]
+            approach['torque'] = approach['torque'][idx:]
+            approach['position'] = approach['position'][idx:]
+            approach['tactile'] = approach['tactile'][idx:]
+            approach['time'] = approach['time'][idx:]
+
+            self.compressed_log.append(approach)
+
+        self.saveCompressedData()
+
+    def disttt(self, position_a, position_b):
+        return math.sqrt((position_a.x - position_b.x)**2 + (position_a.y - position_b.y)**2 + (position_a.z - position_b.z)**2)
 
     def saveData(self):
         # currently we are saving the data in a pickle file
@@ -186,7 +243,28 @@ class Experiment(object):
             os.makedirs(data_dir)
 
         with open(location, 'wb') as handle:
-            pickle.dump(self.data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(self.final_log, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    def saveCompressedData(self):
+        # currently we are saving the data in a pickle file
+        # the data it saves is timestamped force, pose and tactile sensor data
+
+        # create unique filename using time, data, and type of tactile sensor
+        filename = datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f") + "-compressed.pkl"
+
+        # Get the absolute path of the directory containing the script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Construct the absolute path of the data file
+        data_dir = os.path.join(script_dir, '..', 'data', self.tactile_sensor)
+        location = os.path.join(data_dir, filename)
+
+        # Create the directory if it doesn't exist
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+
+        with open(location, 'wb') as handle:
+            pickle.dump(self.compressed_log, handle, protocol=pickle.HIGHEST_PROTOCOL)
         
     def publishPose(self):
         # Create a publisher for the robot pose
@@ -221,11 +299,8 @@ mp = Experiment(tactile_sensor)
 
 mp.LogAndLoop()
 
-# mp.publishPose()
-
 # Data Saving ###
-try:
-    mp.saveData()
-    print("Data saved")
-except:
-    print("Data not saved")
+mp.saveData()
+print("Data saved")
+mp.compressFinalLog(0.02)
+

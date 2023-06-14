@@ -671,7 +671,7 @@ class Experiment(object):
         wall_pose = geometry_msgs.msg.PoseStamped()
         wall_pose.header.frame_id = "base"
         wall_pose.pose.position.x = 0
-        wall_pose.pose.position.y = 0.3
+        wall_pose.pose.position.y = 0.2
         wall_pose.pose.position.z = 0
         wall_pose.pose.orientation.z = 0.7071
         wall_pose.pose.orientation.w = 0.7071
@@ -704,7 +704,7 @@ class Experiment(object):
         roof_pose.header.frame_id = "base"
         roof_pose.pose.position.x = 0
         roof_pose.pose.position.y = 0
-        roof_pose.pose.position.z = 0.8
+        roof_pose.pose.position.z = 0.7
         roof_pose.pose.orientation.w = 1.0
         scene.add_box("roof", roof_pose, (10, 2, 0.01))
 
@@ -1031,6 +1031,8 @@ radius = 0.15
 offset = 0.7 # 0.5 = interface_z/radius (what percentage of the radius is the interface)
 
 mp.addEnvironment()
+
+# time.sleep(10)
 
 mp.defineStart()
 path = mp.circleApproach(n=n, center=center, offset=offset, radius=radius)
