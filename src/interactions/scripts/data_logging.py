@@ -9,6 +9,7 @@ import geometry_msgs.msg
 from geometry_msgs.msg import Pose, PoseStamped
 from std_msgs.msg import Int16
 from sensor_msgs.msg import Image
+from papillarray_ros_v2.msg import SensorState, PillarState
 from cv_bridge import CvBridge
 from std_srvs.srv import Trigger, TriggerRequest
 from rospy.rostime import Duration
@@ -127,6 +128,9 @@ class Experiment(object):
         self.bridge = CvBridge()
         self.digit = None
 
+        rospy.Subscriber("/hub_0/sensor_0", SensorState, self.contactile_cb)
+
+
         self.approaching = 0
         ## Subscribe to Interrupt topic to obtain interrupt signal AND UPDATE self.test_interrupt
         rospy.Subscriber("/Approaching", Int16, self.approaching_cb)
@@ -154,9 +158,7 @@ class Experiment(object):
         self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
 
     def contactile_cb(self, data):
-        
-        ## convert data.data using cvbridge
-        self.frame = self.bridge.imgmsg_to_cv2(data)        
+        self.frame = data        
         # obtain cartesian coordinates at current position
         # store current force, coordinates, frames, and time in self.data dictionary
         # format time as day-month-year-hour-minute-second-millisecond
