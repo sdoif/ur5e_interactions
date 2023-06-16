@@ -443,7 +443,10 @@ class Experiment(object):
 
             constraint_yaw = yaw-math.pi/2
 
-            self.moveToObjectCenterWithZ(wpose, cx, cy, offset, constraint_yaw, max_z=0.26)
+            # 23.5 for mustard
+            # 26 for jug
+            # 15 for soup
+            self.moveToObjectCenterWithZ(wpose, cx, cy, offset, constraint_yaw, max_z=0.133)
             
             zeroFT()
 
@@ -479,8 +482,8 @@ class Experiment(object):
                 # Increment z
                 #self.define_workspace()
                 npose = self.move_group.get_current_pose().pose
-                npose.position.z += 0.021
-                wpose.position.z += 0.021
+                npose.position.z += 0.012 #21 for jug, 20 mustasrd, 12 soup
+                wpose.position.z += 0.012
                 move_group.go(npose, wait=True)
                 move_group.stop()
                 move_group.clear_pose_targets()
@@ -913,7 +916,7 @@ class Experiment(object):
         midpoint = geometry_msgs.msg.Pose()
         midpoint.position.x = 0
         midpoint.position.y = 0.5
-        midpoint.position.z = 0.2
+        midpoint.position.z = 0.18
 
         # Calculate the orientation of the constraint
         roll = 0.0  # Since the constraint is parallel to the line, we can set roll to 0
@@ -1024,9 +1027,10 @@ tactile_sensor = "Digit"
 mp = Experiment(tactile_sensor)
 
 n = 20
-center = [-0.135,0.650]
+#center = [-0.135,0.650] # jug
+center = [-0.135,0.615] # mustard
 interface_z = 0.075
-radius = 0.15
+radius = 0.13 #0.15 jug, 0.13 mustard
 
 offset = 0.7 # 0.5 = interface_z/radius (what percentage of the radius is the interface)
 

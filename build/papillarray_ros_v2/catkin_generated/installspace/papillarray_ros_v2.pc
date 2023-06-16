@@ -1,0 +1,8 @@
+prefix=/home/salmand/fyp/ur5e_interactions/install
+
+Name: papillarray_ros_v2
+Description: Description of papillarray_ros_v2
+Version: 0.0.0
+Cflags: -I${prefix}/include
+Libs: -L${prefix}/lib 
+Requires: 

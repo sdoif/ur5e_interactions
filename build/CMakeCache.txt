@@ -610,6 +610,12 @@ object_recognition_msgs_DIR:PATH=/opt/ros/noetic/share/object_recognition_msgs/c
 //The directory containing a CMake configuration file for octomap_msgs.
 octomap_msgs_DIR:PATH=/opt/ros/noetic/share/octomap_msgs/cmake
 
+//Value Computed by CMake
+papillarray_ros_v2_BINARY_DIR:STATIC=/home/salmand/fyp/ur5e_interactions/build/papillarray_ros_v2
+
+//Value Computed by CMake
+papillarray_ros_v2_SOURCE_DIR:STATIC=/home/salmand/fyp/ur5e_interactions/src/papillarray_ros_v2
+
 //The directory containing a CMake configuration file for pass_through_controllers.
 pass_through_controllers_DIR:PATH=/opt/ros/noetic/share/pass_through_controllers/cmake
 

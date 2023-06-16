@@ -6,11 +6,12 @@ import rospy
 import moveit_commander
 import moveit_msgs.msg
 import geometry_msgs.msg
+from std_msgs.msg import Int16
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from std_srvs.srv import Trigger, TriggerRequest
 from rospy.rostime import Duration
-from tf.transformations import quaternion_from_euler
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
 
 from datetime import datetime 
 import os
@@ -165,9 +166,18 @@ class Experiment(object):
         self.bridge = CvBridge()
         self.digit = None
 
+        self.test_interrupt = 0
+        ## Subscribe to Interrupt topic to obtain interrupt signal AND UPDATE self.test_interrupt
+        rospy.Subscriber("/Interrupt", Int16, self.interrupt_cb)
+
+
         self.tactile_sensor = ts
-    
+
+    def interrupt_cb(self, msg):
+        self.test_interrupt = msg.data
+
     def probe_object(self, n):
+
         move_group = self.move_group
         center = [0, 0.5, 0]
         radius = center[1] - move_group.get_current_pose().pose.position.y
@@ -175,11 +185,12 @@ class Experiment(object):
         
         for point in points:
             self.move_to_position(point)
-            #self.orient_wrist(center)
+            self.orient_wrist(center)
             #self.move_toward_center(center)
             time.sleep(1)
             
     def move_to_position(self, position):
+
         move_group = self.move_group
         pose_goal = move_group.get_current_pose().pose
 
@@ -193,21 +204,30 @@ class Experiment(object):
         move_group.clear_pose_targets()
 
     def orient_wrist(self, center):
-        pose_goal = self.move_group.get_current_pose().pose
+        move_group = self.move_group
+        pose_goal = move_group.get_current_pose().pose
+
         dx = center[0] - pose_goal.position.x
         dy = center[1] - pose_goal.position.y
         dz = center[2] - pose_goal.position.z
-        yaw = math.atan2(dy, dx)
-        pitch = math.atan2(dz, math.sqrt(dx**2 + dy**2))
-        q = quaternion_from_euler(0, pitch, yaw)
+
+        
+        roll, pitch, yaw = euler_from_quaternion([pose_goal.orientation.x, 
+                                                pose_goal.orientation.y, 
+                                                pose_goal.orientation.z, 
+                                                pose_goal.orientation.w])  # Keep current pitch and roll
+
+        q = quaternion_from_euler(roll, pitch, yaw)
+
         pose_goal.orientation.x = q[0]
         pose_goal.orientation.y = q[1]
         pose_goal.orientation.z = q[2]
         pose_goal.orientation.w = q[3]
-        self.move_group.set_pose_target(pose_goal)
-        plan = self.move_group.go(wait=True)
-        self.move_group.stop()
-        self.move_group.clear_pose_targets()
+
+        move_group.set_pose_target(pose_goal)
+        plan = move_group.go(wait=True)
+        move_group.stop()
+        move_group.clear_pose_targets()
 
     def move_toward_center(self, center):
         while True:
@@ -221,10 +241,10 @@ class Experiment(object):
             pose_goal.position.y += direction[1] * 0.01
             pose_goal.position.z += direction[2] * 0.01
             self.move_group.set_pose_target(pose_goal)
-            plan = self.move_group.go(wait=True)
-            self.move_group.stop()
-            self.move_group.clear_pose_targets()
-            if np.linalg.norm(self.force) > 10:  # if force is more than 10N
+            plan = self.move_group.go(wait=False)
+            # self.move_group.stop()
+            # self.move_group.clear_pose_targets()
+            if self.test_interrupt > 10:  # if force is more than 10N
                 # TODO: add pause
                 break
 
@@ -246,4 +266,4 @@ class Experiment(object):
 tactile_sensor = "Digit"
 
 mp = Experiment(tactile_sensor)
-mp.probe_object(10)
+mp.move_toward_center([0, 0.5, 0])

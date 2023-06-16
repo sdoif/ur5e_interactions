@@ -153,6 +153,16 @@ class Experiment(object):
         self.data['tactile'].append(self.frame)
         self.data['time'].append(datetime.now().strftime("%d-%m-%Y-%H-%M-%S-%f"))
 
+    def contactile_cb(self, data):
+        
+        ## convert data.data using cvbridge
+        self.frame = self.bridge.imgmsg_to_cv2(data)        
+        # obtain cartesian coordinates at current position
+        # store current force, coordinates, frames, and time in self.data dictionary
+        # format time as day-month-year-hour-minute-second-millisecond
+        if self.approaching:
+            self.logSelfData()
+
     def digit_cb(self, data):
         
         ## convert data.data using cvbridge
