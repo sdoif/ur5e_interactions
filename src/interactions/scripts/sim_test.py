@@ -27,15 +27,6 @@ import math
 
 from geometry_msgs.msg import WrenchStamped
 
-try:
-    from math import pi, tau, dist, fabs, cos
-except:  # For Python 2 compatibility
-    from math import pi, fabs, cos, sqrt
-
-    tau = 2.0 * pi
-
-    def dist(p, q):
-        return sqrt(sum((p_i - q_i) ** 2.0 for p_i, q_i in zip(p, q)))
 
 import time
 import numpy as np
@@ -43,35 +34,6 @@ import math
 
 from std_msgs.msg import String
 from moveit_commander.conversions import pose_to_list
-
-def all_close(goal, actual, tolerance):
-    """
-    Convenience method for testing if the values in two lists are within a tolerance of each other.
-    For Pose and PoseStamped inputs, the angle between the two quaternions is compared (the angle
-    between the identical orientations q and -q is calculated correctly).
-    @param: goal       A list of floats, a Pose or a PoseStamped
-    @param: actual     A list of floats, a Pose or a PoseStamped
-    @param: tolerance  A float
-    @returns: bool
-    """
-    if type(goal) is list:
-        for index in range(len(goal)):
-            if abs(actual[index] - goal[index]) > tolerance:
-                return False
-
-    elif type(goal) is geometry_msgs.msg.PoseStamped:
-        return all_close(goal.pose, actual.pose, tolerance)
-
-    elif type(goal) is geometry_msgs.msg.Pose:
-        x0, y0, z0, qx0, qy0, qz0, qw0 = pose_to_list(actual)
-        x1, y1, z1, qx1, qy1, qz1, qw1 = pose_to_list(goal)
-        # Euclidean distance
-        d = dist((x1, y1, z1), (x0, y0, z0))
-        # phi = angle between orientations
-        cos_phi_half = fabs(qx0 * qx1 + qy0 * qy1 + qz0 * qz1 + qw0 * qw1)
-        return d <= tolerance and cos_phi_half >= cos(tolerance / 2.0)
-
-    return True
 
 def zeroFT():
     try:
@@ -89,7 +51,7 @@ class Experiment(object):
 
         ## First initialize `moveit_commander`_ and a `rospy`_ node:
         moveit_commander.roscpp_initialize(sys.argv)
-        rospy.init_node("move_group_python_interface_tutorial", anonymous=True)
+        rospy.init_node("commander", anonymous=True)
 
         ## Instantiate a `RobotCommander`_ object. Provides information such as the robot's
         ## kinematic model and the robot's current joint states
@@ -177,10 +139,6 @@ class Experiment(object):
         joint_goal[joint] = angle
         move_group.go(joint_goal, wait=True)
         move_group.stop()
-
-        # For testing:
-        #current_joints = move_group.get_current_joint_values()
-        #return all_close(joint_goal, current_joints, 0.01)
 
     def wrench_cb(self, data):
         self.force = [data.wrench.force.x, data.wrench.force.y, data.wrench.force.z] 
@@ -1035,8 +993,6 @@ radius = 0.13 #0.15 jug, 0.13 mustard
 offset = 0.7 # 0.5 = interface_z/radius (what percentage of the radius is the interface)
 
 mp.addEnvironment()
-
-# time.sleep(10)
 
 mp.defineStart()
 path = mp.circleApproach(n=n, center=center, offset=offset, radius=radius)
